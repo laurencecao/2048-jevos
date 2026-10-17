@@ -96,7 +96,8 @@ ollama serve                                            # 或 docker run -d --gp
 ollama pull clef-flash:9b                               # 10.6 GB（Q8_0，9.1B）
 ```
 
-**冷启动**：首次请求要加载 10.6 GB 模型，实测 ~110 s；之后每步 **0.3–0.7 s**（4× NVIDIA A2）。
+**冷启动**：首次请求要加载 10.6 GB 模型，实测 ~110 s（4× NVIDIA A2）。之后：浅局单问 **0.32–0.67 s**；
+真实对局 120 步实测 **assisted 均值 1.39 s/步、hinted 均值 1.00 s/步**（含 HTTP 与 Next 转发）。
 再用 `OLLAMA_KEEP_ALIVE`（默认 `30m`）让模型常驻，避免每隔半小时重新加载。
 
 ## 界面

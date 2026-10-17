@@ -16,13 +16,18 @@ OLLAMA_MODEL="${OLLAMA_MODEL:-clef-flash:9b}"
 
 echo "repo:  $REPO_DIR"
 echo "data:  $DATA_DIR"
-for row in "jevos $JEVOS_PORT /health" "web $WEB_PORT /"; do
-  set -- $row
-  name="$1"; port="$2"; path="$3"
-  code="$(curl -s -o /dev/null -w '%{http_code}' -m 3 "http://127.0.0.1:$port$path" || true)"
-  pid="$(cat "$DATA_DIR/$name.pid" 2>/dev/null || echo -)"
-  echo "$name: http $code  pid $pid  port $port"
-done
+probe() { # name port path
+  local code pid
+  code="$(curl -s -o /dev/null -w '%{http_code}' -m 3 "http://127.0.0.1:$2$3" || true)"
+  pid="$(cat "$DATA_DIR/$1.pid" 2>/dev/null || echo -)"
+  echo "$1: http $code  pid $pid  port $2"
+}
+if [ "$AI_PROVIDER" = "ollama" ]; then
+  echo "jevos: not started (provider=ollama)"
+else
+  probe jevos "$JEVOS_PORT" /health
+fi
+probe web "$WEB_PORT" /
 echo "engine: $AI_PROVIDER"
 if [ "$AI_PROVIDER" = "ollama" ]; then
   code="$(curl -s -o /dev/null -w '%{http_code}' -m 3 "$OLLAMA_URL/api/version" || true)"
