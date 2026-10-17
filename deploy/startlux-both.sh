@@ -44,11 +44,16 @@ API27="${STARTLUX27B_API_PORT:-8082}"
 CTX="${STARTLUX_CTX:-4096}"
 BATCH="${STARTLUX_BATCH:-2048}"
 UBATCH="${STARTLUX_UBATCH:-2048}"
-# startlux_decide lives in a source checkout, not necessarily in a venv.
+# startlux_decide may live in a source checkout while its deps (aiohttp,
+# transformers, jinja2) sit in a separate target dir - put both on PYTHONPATH.
 if [ -z "${STARTLUX_PYTHONPATH:-}" ]; then
+  parts=""
   for cand in "$REPO_DIR/../startlux-src" "$REPO_DIR/../StartLux-Decision" "$REPO_DIR/../startlux-py"; do
-    [ -d "$cand/startlux_decide" ] && { STARTLUX_PYTHONPATH="$cand"; break; }
+    if [ -d "$cand/startlux_decide" ] || [ -d "$cand/aiohttp" ]; then
+      parts="${parts:+${parts}:}$cand"
+    fi
   done
+  [ -n "$parts" ] && STARTLUX_PYTHONPATH="$parts"
 fi
 PYTHONPATH="${STARTLUX_PYTHONPATH:-}${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH
