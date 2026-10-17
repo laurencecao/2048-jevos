@@ -180,6 +180,16 @@ bash deploy/switch-provider.sh startlux
 # 或写 deploy.env：AI_PROVIDER="startlux" / STARTLUX_URL / STARTLUX_MODEL
 ```
 
+**安装要点（实测于 10.0.2.160）**
+
+- PyPI：该机直连 `pypi.org` 会超时，用镜像（`--index-url https://mirrors.aliyun.com/pypi/simple/`）。
+- 依赖：`aiohttp` + `transformers>=5.6` + **`jinja2>=3.1`**（缺它会在启动时
+  `ImportError: apply_chat_template requires jinja2>=3.1.0`）。
+- 不需要 torch：只用 tokenizer，`[transformers] PyTorch was not found` 可忽略。
+- 没装成 CLI 时可直接跑源码：`PYTHONPATH=<target>:<repo> python3 -m startlux_decide.cli serve ...`；
+  仓库的 `deploy/startlux-serve.sh` 已封装（读 `STARTLUX_MODEL_DIR` / `STARTLUX_LLAMACPP_URL` / `STARTLUX_PORT`）。
+- GPU：startlux（约 9.5 GB）与 ollama clef（约 12.9 GB）在 4×A2 上**不能同时常驻**；切回 ollama 前先停 llama-server。
+
 **验收**
 
 ```bash
@@ -196,6 +206,7 @@ curl -s 'http://127.0.0.1:3000/api/jevos/health?provider=startlux'
 2. **不要用 llama-server 的 `/v1/chat/completions` 顶替**：普通 chat 不产出选项字母概率，结果不可用。
 3. **Instant 必须整段一次读**：`--parallel 1`、`--ctx-checkpoints 0`、`-b/-ub` 不小于 prompt；否则概率会和 BF16 有偏差。
 4. **服务是两段**：8018 是 llama-server（原始 API，没有 `/v1/systemone`），8081 才是 decision API；app 连 8081。
+5. **与 ollama 争显存**：两个 GPU 引擎都接近单卡容量上限，实测只能留一个；切换前先停掉另一个。
 
 ---
 
@@ -218,6 +229,10 @@ curl -s 'http://127.0.0.1:3000/api/jevos/health?provider=startlux'
 > **用 ollama 时**：第 2 步改为 `bash deploy/install.sh --provider ollama --no-start`（跳过 jevos 资产）；
 > 第 4 步换成 `curl -fsS 'http://127.0.0.1:3000/api/jevos/health?provider=ollama'`，判据是 `"ok":true` 且 `"model":"clef-flash:9b"`；
 > 第 7 步的 move 请求体加 `"provider":"ollama"`，返回里应有 `"engine":{"id":"ollama"}`。
+>
+> **用 startlux 时**：第 2 步用 `--provider startlux --no-start`；第 4 步换成
+> `curl -fsS 'http://127.0.0.1:3000/api/jevos/health?provider=startlux'`，判据是 `"ok":true`
+> 且 `"model":"StartLux-Decision-v1.1-9B-Instant"`；move 请求体加 `"provider":"startlux"`。
 
 **离线/内网**：在能上网的机器上下载 §4 的两个文件，拷到目标机任意目录，然后：
 
@@ -250,7 +265,8 @@ bash deploy/install.sh --assets-dir /path/to/assets
 │   ├── install.sh      # 下载 + 校验 + 解包 + 构建 + 启动
 │   ├── start.sh        # 幂等启动（按 AI_PROVIDER 决定起 jevos 还是只用 ollama）
 │   ├── stop.sh         # 按 pidfile 停；ss 可用时按端口回收
-│   ├── status.sh       # 一屏健康报告（含引擎与 ollama 连通性）
+│   ├── status.sh       # 一屏健康报告（含引擎与 ollama/startlux 连通性）
+│   ├── startlux-serve.sh  # 在 8081 起 StartLux decision API（llama-server 在 8018）
 │   └── switch-provider.sh  # 改 deploy.env 的 AI_PROVIDER 并重启
 ├── docs/DEPLOY.md      # 本文
 ├── pages/api/jevos/    # 同源代理：/move、/health（支持 ?provider=）
