@@ -12,10 +12,10 @@ export default function Home() {
   return (
     <div className={styles.twenty48}>
       <Head>
-        <title>2048 · jevos plays</title>
+        <title>2048 · AI plays</title>
         <meta
           name="description"
-          content="2048 with a local jevos model choosing every move, on CPU."
+          content="2048 where a local model (jevos on CPU, or ollama clef-flash on GPU) chooses every move."
         />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="favicon.ico" />
@@ -31,7 +31,7 @@ export default function Home() {
         <div>
           <h1>2048</h1>
           <p className={styles.subtitle}>
-            jevos 在本机 CPU 上选每一步 · 你也可以随时用方向键接手
+            本机模型选每一步 · 你也可以随时用方向键接手
           </p>
         </div>
         <Score />
@@ -48,10 +48,10 @@ export default function Home() {
         />
         {ai.running
           ? ai.busy
-            ? "jevos 思考中…"
+            ? `${ai.engine?.label ?? "AI"} 思考中…`
             : ai.last
-              ? `jevos → ${DIR_LABEL[ai.last.dir]}`
-              : "jevos 准备中"
+              ? `${ai.engine?.label ?? "AI"} → ${DIR_LABEL[ai.last.dir]}`
+              : `${ai.engine?.label ?? "AI"} 准备中`
           : "AI 暂停 · 方向键可手动玩"}
       </div>
       <main className={styles.main}>
@@ -82,7 +82,8 @@ export default function Home() {
           </a>
         </div>
         <div>
-          UI: mateuszsokola/2048-in-react (MIT) · AI: jevos (MIT, local CPU)
+          UI: mateuszsokola/2048-in-react (MIT) · AI: jevos (MIT) or ollama +
+          clef-flash
         </div>
       </footer>
     </div>

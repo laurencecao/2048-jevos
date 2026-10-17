@@ -12,6 +12,9 @@ DATA_DIR="${DATA_DIR:-$REPO_DIR/.jevos}"
 WEB_PORT="${WEB_PORT:-3000}"
 JEVOS_PORT="${JEVOS_PORT:-8017}"
 THREADS="${JEVOS_THREADS:-4}"
+AI_PROVIDER="${AI_PROVIDER:-jevos}"
+OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-clef-flash:9b}"
 LOGS="$DATA_DIR/logs"; mkdir -p "$LOGS"
 
 log() { printf '\033[1;36m[start]\033[0m %s\n' "$*"; }
@@ -25,7 +28,9 @@ wait_healthy() { # url timeout_s
   return 1
 }
 
-if healthy "http://127.0.0.1:$JEVOS_PORT/health"; then
+if [ "$AI_PROVIDER" = "ollama" ]; then
+  log "provider=ollama: not starting jevos (set AI_PROVIDER=jevos to switch back)"
+elif healthy "http://127.0.0.1:$JEVOS_PORT/health"; then
   log "jevos already healthy on $JEVOS_PORT"
 else
   [ -x "$DATA_DIR/jev/jev" ] || { echo "jevos not installed; run deploy/install.sh first" >&2; exit 1; }
@@ -45,11 +50,19 @@ else
   [ -f "$REPO_DIR/.next/BUILD_ID" ] || { echo "web not built; run: npm run build" >&2; exit 1; }
   log "starting web (port=$WEB_PORT)"
   # call the next binary directly: keeps the PID stable for stop.sh
-  ( cd "$REPO_DIR" && JEVOS_URL="http://127.0.0.1:$JEVOS_PORT" exec nohup node node_modules/next/dist/bin/next start -p "$WEB_PORT" \
+  ( cd "$REPO_DIR" && AI_PROVIDER="$AI_PROVIDER" \
+      OLLAMA_URL="$OLLAMA_URL" OLLAMA_MODEL="$OLLAMA_MODEL" \
+      JEVOS_URL="http://127.0.0.1:$JEVOS_PORT" \
+      exec nohup node node_modules/next/dist/bin/next start -p "$WEB_PORT" \
       > "$LOGS/web.log" 2>&1 < /dev/null ) &
   echo $! > "$DATA_DIR/web.pid"
   wait_healthy "http://127.0.0.1:$WEB_PORT/" 90 \
     || { echo "web failed to become healthy; last log:" >&2; tail -20 "$LOGS/web.log" >&2; exit 7; }
 fi
 
-log "ready: http://127.0.0.1:$WEB_PORT/  (jevos on :$JEVOS_PORT)"
+if [ "$AI_PROVIDER" = "ollama" ]; then
+  ollama_ok="$(curl -fsS -m 3 "$OLLAMA_URL/api/tags" >/dev/null 2>&1 && echo yes || echo no)"
+  log "ready: http://127.0.0.1:$WEB_PORT/  (engine=ollama $OLLAMA_MODEL at $OLLAMA_URL, reachable=$ollama_ok)"
+else
+  log "ready: http://127.0.0.1:$WEB_PORT/  (engine=jevos on :$JEVOS_PORT)"
+fi

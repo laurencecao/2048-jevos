@@ -10,6 +10,9 @@ fi
 DATA_DIR="${DATA_DIR:-$REPO_DIR/.jevos}"
 [ -f "$DATA_DIR/deploy.env" ] && . "$DATA_DIR/deploy.env"
 WEB_PORT="${WEB_PORT:-3000}"; JEVOS_PORT="${JEVOS_PORT:-8017}"
+AI_PROVIDER="${AI_PROVIDER:-jevos}"
+OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-clef-flash:9b}"
 
 echo "repo:  $REPO_DIR"
 echo "data:  $DATA_DIR"
@@ -20,9 +23,15 @@ for row in "jevos $JEVOS_PORT /health" "web $WEB_PORT /"; do
   pid="$(cat "$DATA_DIR/$name.pid" 2>/dev/null || echo -)"
   echo "$name: http $code  pid $pid  port $port"
 done
-health="$(curl -fsS -m 3 "http://127.0.0.1:$JEVOS_PORT/health" 2>/dev/null || true)"
-if [ -n "$health" ]; then
-  model="$(printf '%s' "$health" | sed -n 's/.*"model":"\([^"]*\)".*/\1/p')"
-  echo "model: $model"
+echo "engine: $AI_PROVIDER"
+if [ "$AI_PROVIDER" = "ollama" ]; then
+  code="$(curl -s -o /dev/null -w '%{http_code}' -m 3 "$OLLAMA_URL/api/version" || true)"
+  echo "ollama: http $code  model $OLLAMA_MODEL  url $OLLAMA_URL"
+else
+  health="$(curl -fsS -m 3 "http://127.0.0.1:$JEVOS_PORT/health" 2>/dev/null || true)"
+  if [ -n "$health" ]; then
+    model="$(printf '%s' "$health" | sed -n 's/.*"model":"\([^"]*\)".*/\1/p')"
+    echo "model: $model"
+  fi
 fi
 echo "logs:  $DATA_DIR/logs"

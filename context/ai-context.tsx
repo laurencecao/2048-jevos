@@ -20,6 +20,17 @@ import { GameContext } from "./game-context";
 
 export type AiMode = "pure" | "hinted" | "assisted";
 
+/** Mirrors lib/engine.ts; kept local so the client bundle never imports the
+ * server-side fetch helpers. */
+export type EngineProvider = "jevos" | "ollama";
+
+export type EngineInfo = {
+  id: EngineProvider;
+  label: string;
+  model: string;
+  transport?: "cpu" | "gpu";
+};
+
 export type Outlook = {
   score: number;
   label: string;
@@ -51,10 +62,15 @@ export type Decision = {
 
 export type EngineHealth = {
   ok: boolean;
+  provider?: EngineProvider;
+  label?: string;
   endpoint?: string;
   model?: string;
+  transport?: "cpu" | "gpu";
   latencyMs?: number;
   error?: string;
+  hint?: string;
+  engines?: EngineInfo[];
 };
 
 export type AiStats = {
@@ -65,11 +81,16 @@ export type AiStats = {
   avgLatency: number;
 };
 
+const ENGINE_STORAGE_KEY = "2048-engine";
+
 type AiContextValue = {
   running: boolean;
   busy: boolean;
   error: string | null;
   engine: EngineHealth | null;
+  engines: EngineInfo[];
+  provider: EngineProvider | null;
+  setProvider: (provider: EngineProvider) => void;
   mode: AiMode;
   setMode: (mode: AiMode) => void;
   speedMs: number;
@@ -99,6 +120,9 @@ const AiContext = createContext<AiContextValue>({
   busy: false,
   error: null,
   engine: null,
+  engines: [],
+  provider: null,
+  setProvider: () => undefined,
   mode: "assisted",
   setMode: () => undefined,
   speedMs: 150,
@@ -128,6 +152,7 @@ export default function AiProvider({ children }: PropsWithChildren) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [engine, setEngine] = useState<EngineHealth | null>(null);
+  const [provider, setProviderState] = useState<EngineProvider | null>(null);
   const [mode, setMode] = useState<AiMode>("assisted");
   const [speedMs, setSpeedMs] = useState(150);
   const [decisions, setDecisions] = useState<Decision[]>([]);
@@ -137,6 +162,7 @@ export default function AiProvider({ children }: PropsWithChildren) {
   const runningRef = useRef(running);
   const busyRef = useRef(busy);
   const modeRef = useRef(mode);
+  const providerRef = useRef<EngineProvider | null>(provider);
   const runIdRef = useRef(0);
   const stepRef = useRef(false);
   const moveNoRef = useRef(0);
@@ -148,6 +174,7 @@ export default function AiProvider({ children }: PropsWithChildren) {
   runningRef.current = running;
   busyRef.current = busy;
   modeRef.current = mode;
+  providerRef.current = provider;
   stateRef.current = { score: game.score, status: game.status };
 
   const tiles = game.getTiles();
@@ -177,11 +204,19 @@ export default function AiProvider({ children }: PropsWithChildren) {
           decisions.filter((decision) => !decision.skipped).length,
   };
 
-  const refreshHealth = useCallback(async () => {
+  const refreshHealth = useCallback(async (id?: EngineProvider) => {
+    const target = id ?? providerRef.current;
+    const query = target ? "?provider=" + target : "";
     try {
-      const response = await fetch("/api/jevos/health", { cache: "no-store" });
+      const response = await fetch("/api/jevos/health" + query, {
+        cache: "no-store",
+      });
       const json = (await response.json()) as EngineHealth;
       setEngine(json);
+      // First load with no explicit choice: adopt the server's default.
+      if (json.provider === "jevos" || json.provider === "ollama") {
+        setProviderState((current) => current ?? json.provider ?? null);
+      }
     } catch (caught) {
       setEngine({
         ok: false,
@@ -191,6 +226,18 @@ export default function AiProvider({ children }: PropsWithChildren) {
   }, []);
 
   useEffect(() => {
+    let stored: string | null = null;
+    try {
+      stored = window.localStorage.getItem(ENGINE_STORAGE_KEY);
+    } catch {
+      stored = null;
+    }
+    if (stored === "jevos" || stored === "ollama") {
+      setProviderState(stored);
+      void refreshHealth(stored);
+      return;
+    }
+    // No local choice yet: ask the server which engine it defaults to.
     void refreshHealth();
   }, [refreshHealth]);
 
@@ -261,6 +308,7 @@ export default function AiProvider({ children }: PropsWithChildren) {
           score: stateRef.current.score,
           moves: moveNoRef.current,
           mode: modeRef.current,
+          provider: providerRef.current ?? undefined,
           exclude: excluded,
         }),
         signal: controller.signal,
@@ -271,7 +319,7 @@ export default function AiProvider({ children }: PropsWithChildren) {
       if (!response.ok) {
         throw new Error(
           (data && typeof data.error === "string" && data.error) ||
-            "jevos API returned HTTP " + response.status,
+            "AI API returned HTTP " + response.status,
         );
       }
       if (data.gameOver) {
@@ -395,12 +443,28 @@ export default function AiProvider({ children }: PropsWithChildren) {
   const clearError = useCallback(() => setError(null), []);
   const selectMode = useCallback((next: AiMode) => setMode(next), []);
   const selectSpeed = useCallback((next: number) => setSpeedMs(next), []);
+  const selectProvider = useCallback(
+    (next: EngineProvider) => {
+      setProviderState(next);
+      try {
+        window.localStorage.setItem(ENGINE_STORAGE_KEY, next);
+      } catch {
+        // private mode / storage disabled: keep the in-memory choice only
+      }
+      setError(null);
+      void refreshHealth(next);
+    },
+    [refreshHealth],
+  );
 
   const value: AiContextValue = {
     running,
     busy,
     error,
     engine,
+    engines: engine?.engines ?? [],
+    provider,
+    setProvider: selectProvider,
     mode,
     setMode: selectMode,
     speedMs,
@@ -413,7 +477,7 @@ export default function AiProvider({ children }: PropsWithChildren) {
     pause,
     step,
     restart,
-    refreshHealth,
+    refreshHealth: () => void refreshHealth(),
     clearError,
   };
 

@@ -1,11 +1,29 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { jevosHealth } from "@/lib/jevos";
+import {
+  defaultProviderId,
+  engineHealth,
+  engineList,
+  isProviderId,
+} from "@/lib/engine";
 
 export default async function handler(
-  _request: NextApiRequest,
+  request: NextApiRequest,
   response: NextApiResponse,
 ) {
   response.setHeader("Cache-Control", "no-store");
-  const health = await jevosHealth();
-  return response.status(health.ok ? 200 : 503).json(health);
+
+  const requested = request.query.provider;
+  const provider = isProviderId(requested) ? requested : undefined;
+  const health = await engineHealth(provider);
+
+  return response.status(health.ok ? 200 : 503).json({
+    ...health,
+    defaultProvider: defaultProviderId(),
+    engines: engineList().map((engine) => ({
+      id: engine.id,
+      label: engine.label,
+      model: engine.model,
+      transport: engine.transport,
+    })),
+  });
 }

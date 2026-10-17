@@ -1,11 +1,21 @@
 import { useContext } from "react";
 import { GameContext } from "@/context/game-context";
-import { useAi, type AiMode } from "@/context/ai-context";
+import { useAi, type AiMode, type EngineProvider } from "@/context/ai-context";
 import { DIR_ARROW, DIR_LABEL, type Dir } from "@/lib/game";
 import { MODE_LABEL } from "@/lib/prompt";
 import styles from "@/styles/ai-panel.module.css";
 
 const MODES: AiMode[] = ["assisted", "hinted", "pure"];
+
+const ENGINE_FALLBACK: {
+  id: EngineProvider;
+  label: string;
+  model: string;
+  transport: "cpu" | "gpu";
+}[] = [
+  { id: "jevos", label: "jevos", model: "jev-latest", transport: "cpu" },
+  { id: "ollama", label: "ollama", model: "clef-flash:9b", transport: "gpu" },
+];
 
 function pct(value: number): string {
   return Math.round(Math.max(0, Math.min(1, value)) * 100) + "%";
@@ -23,6 +33,11 @@ export default function AiPanel() {
   const ai = useAi();
   const last = ai.last;
 
+  const engines = ai.engines.length > 0 ? ai.engines : ENGINE_FALLBACK;
+  const active =
+    engines.find((engine) => engine.id === ai.provider) ?? engines[0];
+  const engineLabel = ai.engine?.label ?? active.label;
+
   const confidenceTone = !last
     ? styles.warn
     : last.confidence >= 0.5
@@ -35,13 +50,13 @@ export default function AiPanel() {
     const probability = last?.probabilities?.[dir] ?? 0;
     const legal = last ? last.legal.includes(dir) : true;
     const offered = last ? last.candidates.includes(dir) : true;
-    const active = last?.dir === dir;
+    const activeCell = last?.dir === dir;
     return (
       <div
         key={dir}
         className={
           styles.cell +
-          (active ? " " + styles.cellActive : "") +
+          (activeCell ? " " + styles.cellActive : "") +
           (last && !legal ? " " + styles.cellDead : "")
         }
       >
@@ -59,8 +74,8 @@ export default function AiPanel() {
     <aside className={styles.panel}>
       <div className={styles.head}>
         <div>
-          <div className={styles.title}>jevos 接管</div>
-          <div className={styles.sub}>本机 CPU 推理 · 每步由模型选方向</div>
+          <div className={styles.title}>AI 接管</div>
+          <div className={styles.sub}>{engineLabel} · 每步由模型选方向</div>
         </div>
         <div className={styles.engine}>
           <span
@@ -75,38 +90,31 @@ export default function AiPanel() {
           {ai.engine === null
             ? "检查中…"
             : ai.engine.ok
-              ? `${ai.engine.model ?? "jevos"} · ${fmtMs(
+              ? `${ai.engine.model ?? engineLabel} · ${fmtMs(
                   ai.engine.latencyMs ?? 0,
                 )}`
-              : "jevos 未启动"}
+              : `${engineLabel} 未就绪`}
         </div>
       </div>
 
       {ai.engine && !ai.engine.ok && (
         <div className={styles.error}>
-          {ai.engine.error || "无法连接 127.0.0.1:8017"}
-          <code>cd /tmp/jev-macos/jev &amp;&amp; ./jev serve --threads 4</code>
+          {ai.engine.error || "无法连接推理服务"}
+          {ai.engine.hint && <code>{ai.engine.hint}</code>}
           <button className={styles.linkButton} onClick={ai.refreshHealth}>
             重试
           </button>
         </div>
       )}
 
-      {ai.error && (
-        <div className={styles.error}>
-          {ai.error}
-          {ai.error.includes("cannot reach") || ai.error.includes("fetch")
-            ? " · 确认 jevos 在 8017 上运行"
-            : ""}
-        </div>
-      )}
+      {ai.error && <div className={styles.error}>{ai.error}</div>}
 
       <div className={styles.controls}>
         <button
           className={styles.btn + " " + styles.primary}
           onClick={ai.running ? ai.pause : ai.start}
         >
-          {ai.running ? "⏸ 暂停" : "▶ 让 jevos 开始"}
+          {ai.running ? "⏸ 暂停" : "▶ 让 AI 开始"}
         </button>
         <button
           className={styles.btn}
@@ -118,6 +126,23 @@ export default function AiPanel() {
         <button className={styles.btn} onClick={ai.restart}>
           ↻ 重开
         </button>
+      </div>
+
+      <div className={styles.row}>
+        <label htmlFor="ai-engine">引擎</label>
+        <select
+          id="ai-engine"
+          value={ai.provider ?? active.id}
+          onChange={(event) =>
+            ai.setProvider(event.target.value as EngineProvider)
+          }
+        >
+          {engines.map((engine) => (
+            <option key={engine.id} value={engine.id}>
+              {engine.label} · {engine.model} · {engine.transport ?? "cpu"}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className={styles.row}>
@@ -173,7 +198,7 @@ export default function AiPanel() {
               ? `${fmtMs(last.latencyMs)} · ${last.tokens || 0} tok · ${
                   last.candidates.length
                 } 个候选`
-              : "点「让 jevos 开始」，或先手动玩几步再让它接手"}
+              : "点「让 AI 开始」，或先手动玩几步再让它接手"}
           </div>
           {last?.skipped && (
             <div className={styles.note}>唯一合法走法，未调用模型</div>
@@ -191,7 +216,7 @@ export default function AiPanel() {
         {cell("up")}
         <div />
         {cell("left")}
-        <div className={styles.dpadCore}>jevos</div>
+        <div className={styles.dpadCore}>{engineLabel}</div>
         {cell("right")}
         <div />
         {cell("down")}
@@ -253,7 +278,7 @@ export default function AiPanel() {
 
       {last?.prompt && (
         <details className={styles.details}>
-          <summary>看 jevos 这一步的输入</summary>
+          <summary>看模型这一步的输入</summary>
           <pre>{last.prompt.state}</pre>
           <div className={styles.criteria}>
             {Object.entries(last.prompt.criteria).map(([dir, text]) => (

@@ -13,9 +13,9 @@ import {
 export type Mode = "pure" | "hinted" | "assisted";
 
 export const MODE_LABEL: Record<Mode, string> = {
-  assisted: "jevos 裁决 · 2 候选（快）",
-  hinted: "jevos 自选 · 4 候选（慢）",
-  pure: "纯 jevos · 无提示",
+  assisted: "裁决 · 2 候选（快）",
+  hinted: "自选 · 4 候选（慢）",
+  pure: "纯模型 · 无提示",
 };
 
 export type MovePrompt = {

@@ -1,6 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { isBoard, legalMoves, type Board, type Dir } from "@/lib/game";
-import { askJevos, jevosEndpoint } from "@/lib/jevos";
+import {
+  askEngine,
+  defaultProviderId,
+  isProviderId,
+  resolveEngine,
+} from "@/lib/engine";
 import { buildMovePrompt, type Mode } from "@/lib/prompt";
 
 const MODES: Mode[] = ["pure", "hinted", "assisted"];
@@ -47,6 +52,17 @@ export default async function handler(
     ? body.exclude.map(asDir).filter((dir): dir is Dir => dir !== null)
     : [];
 
+  const provider = isProviderId(body.provider)
+    ? body.provider
+    : defaultProviderId();
+  const engine = resolveEngine(provider);
+  const engineView = {
+    id: engine.id,
+    label: engine.label,
+    model: engine.model,
+    transport: engine.transport,
+  };
+
   const prompt = buildMovePrompt(
     board,
     numberOr(body.score, 0),
@@ -74,7 +90,8 @@ export default async function handler(
       gameOver: false,
       skipped: true,
       fallback: false,
-      model: "jevos-v5 (not called: one legal move)",
+      model: engine.model + " (not called: one legal move)",
+      engine: engineView,
       move: { choice: dir, probabilities: { [dir]: 1 }, confidence: 1 },
       outlook: null,
       legal: prompt.legal,
@@ -82,12 +99,12 @@ export default async function handler(
       prompt: publicPrompt,
       latencyMs: 0,
       usage: null,
-      endpoint: jevosEndpoint(),
+      endpoint: engine.endpoint,
     });
   }
 
   try {
-    const { json, latencyMs, endpoint } = await askJevos(prompt.state, {
+    const { json, latencyMs } = await askEngine(provider, prompt.state, {
       move: {
         type: "choice",
         instructions: prompt.instructions,
@@ -102,7 +119,7 @@ export default async function handler(
 
     const moveAnswer = json.answers && json.answers.move;
     if (!moveAnswer || typeof moveAnswer.choice !== "string") {
-      throw new Error("jevos returned no choice");
+      throw new Error(engine.label + " returned no choice");
     }
 
     const probabilities =
@@ -143,7 +160,8 @@ export default async function handler(
       gameOver: false,
       skipped: false,
       fallback,
-      model: json.model || "jevos-v5",
+      model: json.model || engine.model,
+      engine: { ...engineView, model: json.model || engine.model },
       move: {
         choice,
         probabilities,
@@ -156,13 +174,14 @@ export default async function handler(
       prompt: publicPrompt,
       latencyMs,
       usage: json.usage || null,
-      endpoint,
+      endpoint: engine.endpoint,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return response.status(502).json({
       error: message,
-      hint: "Start the local model first: cd /tmp/jev-macos/jev && ./jev serve --threads 4",
+      hint: engine.hint,
+      provider: engine.id,
     });
   }
 }
