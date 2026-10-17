@@ -3,7 +3,11 @@
 set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="${REPO_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-DATA_DIR="${JEVOS_DATA_DIR:-$REPO_DIR/.jevos}"
+DATA_DIR="${JEVOS_DATA_DIR:-}"
+if [ -z "$DATA_DIR" ] && [ -f "$REPO_DIR/.jevos-path" ]; then
+  DATA_DIR="$(cat "$REPO_DIR/.jevos-path")"
+fi
+DATA_DIR="${DATA_DIR:-$REPO_DIR/.jevos}"
 [ -f "$DATA_DIR/deploy.env" ] && . "$DATA_DIR/deploy.env"
 WEB_PORT="${WEB_PORT:-3000}"; JEVOS_PORT="${JEVOS_PORT:-8017}"
 

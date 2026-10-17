@@ -3,7 +3,11 @@
 set -eo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="${REPO_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-DATA_DIR="${JEVOS_DATA_DIR:-$REPO_DIR/.jevos}"
+DATA_DIR="${JEVOS_DATA_DIR:-}"
+if [ -z "$DATA_DIR" ] && [ -f "$REPO_DIR/.jevos-path" ]; then
+  DATA_DIR="$(cat "$REPO_DIR/.jevos-path")"
+fi
+DATA_DIR="${DATA_DIR:-$REPO_DIR/.jevos}"
 [ -f "$DATA_DIR/deploy.env" ] && . "$DATA_DIR/deploy.env"
 WEB_PORT="${WEB_PORT:-3000}"
 JEVOS_PORT="${JEVOS_PORT:-8017}"
@@ -26,8 +30,10 @@ if healthy "http://127.0.0.1:$JEVOS_PORT/health"; then
 else
   [ -x "$DATA_DIR/jev/jev" ] || { echo "jevos not installed; run deploy/install.sh first" >&2; exit 1; }
   log "starting jevos (threads=$THREADS port=$JEVOS_PORT)"
-  ( cd "$DATA_DIR/jev" && nohup ./jev serve --threads "$THREADS" --port "$JEVOS_PORT" \
-      > "$LOGS/jevos.log" 2>&1 < /dev/null & echo $! > "$DATA_DIR/jevos.pid" )
+  # exec so $! is the jev process itself (not a wrapper shell)
+  ( cd "$DATA_DIR/jev" && exec nohup ./jev serve --threads "$THREADS" --port "$JEVOS_PORT" \
+      > "$LOGS/jevos.log" 2>&1 < /dev/null ) &
+  echo $! > "$DATA_DIR/jevos.pid"
   wait_healthy "http://127.0.0.1:$JEVOS_PORT/health" 180 \
     || { echo "jevos failed to become healthy; last log:" >&2; tail -20 "$LOGS/jevos.log" >&2; exit 7; }
   log "jevos ready"
@@ -38,8 +44,10 @@ if healthy "http://127.0.0.1:$WEB_PORT/"; then
 else
   [ -f "$REPO_DIR/.next/BUILD_ID" ] || { echo "web not built; run: npm run build" >&2; exit 1; }
   log "starting web (port=$WEB_PORT)"
-  ( cd "$REPO_DIR" && JEVOS_URL="http://127.0.0.1:$JEVOS_PORT" nohup npx next start -p "$WEB_PORT" \
-      > "$LOGS/web.log" 2>&1 < /dev/null & echo $! > "$DATA_DIR/web.pid" )
+  # call the next binary directly: keeps the PID stable for stop.sh
+  ( cd "$REPO_DIR" && JEVOS_URL="http://127.0.0.1:$JEVOS_PORT" exec nohup node node_modules/next/dist/bin/next start -p "$WEB_PORT" \
+      > "$LOGS/web.log" 2>&1 < /dev/null ) &
+  echo $! > "$DATA_DIR/web.pid"
   wait_healthy "http://127.0.0.1:$WEB_PORT/" 90 \
     || { echo "web failed to become healthy; last log:" >&2; tail -20 "$LOGS/web.log" >&2; exit 7; }
 fi

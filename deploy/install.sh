@@ -162,6 +162,8 @@ JEVOS_PORT="$JEVOS_PORT"
 JEVOS_THREADS="$THREADS"
 EOF
 chmod 644 "$DATA_DIR/deploy.env"
+# remember the data dir so start/stop/status work without env vars
+printf '%s\n' "$DATA_DIR" > "$REPO_DIR/.jevos-path"
 
 log "config: $DATA_DIR/deploy.env"
 log "jevos:  $JEVDIR ($(du -sh "$JEVDIR/model" | cut -f1) model)"
