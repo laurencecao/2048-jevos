@@ -14,7 +14,7 @@
 #   STARTLUX9B_PORT     8018     STARTLUX27B_PORT   8019   (llama-server)
 #   STARTLUX9B_API_PORT 8081     STARTLUX27B_API_PORT 8082 (decision API)
 #   STARTLUX_CTX / STARTLUX_BATCH / STARTLUX_UBATCH   (4096 / 2048 / 2048)
-#   STARTLUX_PYTHONPATH  where startlux_decide lives [<repo>/../startlux-py]
+#   STARTLUX_PYTHONPATH  where startlux_decide lives [auto: ../startlux-src | ../StartLux-Decision | ../startlux-py]
 #
 # Memory: 9.5 GB (9B Q8_0) + 16.5 GB (27B Q4_K_M) of weights, plus small KV
 # caches. Small -b/-ub keep the logits buffers tiny, so both fit in 4x A2 16 GB.
@@ -44,7 +44,13 @@ API27="${STARTLUX27B_API_PORT:-8082}"
 CTX="${STARTLUX_CTX:-4096}"
 BATCH="${STARTLUX_BATCH:-2048}"
 UBATCH="${STARTLUX_UBATCH:-2048}"
-PYTHONPATH="${STARTLUX_PYTHONPATH:-$REPO_DIR/../startlux-py}${PYTHONPATH:+:$PYTHONPATH}"
+# startlux_decide lives in a source checkout, not necessarily in a venv.
+if [ -z "${STARTLUX_PYTHONPATH:-}" ]; then
+  for cand in "$REPO_DIR/../startlux-src" "$REPO_DIR/../StartLux-Decision" "$REPO_DIR/../startlux-py"; do
+    [ -d "$cand/startlux_decide" ] && { STARTLUX_PYTHONPATH="$cand"; break; }
+  done
+fi
+PYTHONPATH="${STARTLUX_PYTHONPATH:-}${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH
 
 log() { printf '\033[1;36m[startlux-both]\033[0m %s\n' "$*"; }
