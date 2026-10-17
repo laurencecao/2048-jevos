@@ -267,7 +267,9 @@
   border-radius: 9px;
   background: rgba(255, 255, 255, 0.045);
   text-align: center;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
 }
 
 .cellActive {

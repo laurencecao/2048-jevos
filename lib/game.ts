@@ -70,10 +70,7 @@ export function emptyCount(board: Board): number {
 }
 
 export function maxTile(board: Board): number {
-  return board.reduce(
-    (best, row) => Math.max(best, ...row),
-    0,
-  );
+  return board.reduce((best, row) => Math.max(best, ...row), 0);
 }
 
 export function maxTilePos(board: Board): { r: number; c: number } {
@@ -120,7 +117,8 @@ export function simulate(board: Board, dir: Dir): MoveResult {
       const line = next[r].slice();
       if (dir === "right") line.reverse();
       const result = slideLine(line);
-      const output = dir === "right" ? result.line.slice().reverse() : result.line;
+      const output =
+        dir === "right" ? result.line.slice().reverse() : result.line;
       gained += result.gained;
       if (output.some((value, c) => value !== next[r][c])) moved = true;
       next[r] = output;
@@ -130,7 +128,8 @@ export function simulate(board: Board, dir: Dir): MoveResult {
       const line = Array.from({ length: SIZE }, (_, r) => next[r][c]);
       if (dir === "down") line.reverse();
       const result = slideLine(line);
-      const output = dir === "down" ? result.line.slice().reverse() : result.line;
+      const output =
+        dir === "down" ? result.line.slice().reverse() : result.line;
       gained += result.gained;
       for (let r = 0; r < SIZE; r += 1) {
         if (next[r][c] !== output[r]) moved = true;
@@ -142,9 +141,7 @@ export function simulate(board: Board, dir: Dir): MoveResult {
   return { board: next, gained, moved };
 }
 
-export function legalMoves(
-  board: Board,
-): { dir: Dir; result: MoveResult }[] {
+export function legalMoves(board: Board): { dir: Dir; result: MoveResult }[] {
   return DIRS.map((dir) => ({ dir, result: simulate(board, dir) })).filter(
     ({ result }) => result.moved,
   );

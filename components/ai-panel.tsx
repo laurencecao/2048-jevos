@@ -13,7 +13,9 @@ function pct(value: number): string {
 
 function fmtMs(value: number): string {
   if (!value) return "—";
-  return value >= 1000 ? (value / 1000).toFixed(1) + "s" : Math.round(value) + "ms";
+  return value >= 1000
+    ? (value / 1000).toFixed(1) + "s"
+    : Math.round(value) + "ms";
 }
 
 export default function AiPanel() {
@@ -73,7 +75,9 @@ export default function AiPanel() {
           {ai.engine === null
             ? "检查中…"
             : ai.engine.ok
-              ? `${ai.engine.model ?? "jevos"} · ${fmtMs(ai.engine.latencyMs ?? 0)}`
+              ? `${ai.engine.model ?? "jevos"} · ${fmtMs(
+                  ai.engine.latencyMs ?? 0,
+                )}`
               : "jevos 未启动"}
         </div>
       </div>
@@ -166,7 +170,9 @@ export default function AiPanel() {
           </div>
           <div className={styles.meta}>
             {last
-              ? `${fmtMs(last.latencyMs)} · ${last.tokens || 0} tok · ${last.candidates.length} 个候选`
+              ? `${fmtMs(last.latencyMs)} · ${last.tokens || 0} tok · ${
+                  last.candidates.length
+                } 个候选`
               : "点「让 jevos 开始」，或先手动玩几步再让它接手"}
           </div>
           {last?.skipped && (
@@ -201,7 +207,9 @@ export default function AiPanel() {
           <div className={styles.bar}>
             <div
               style={{
-                width: `${Math.max(0, Math.min(1, last.outlook.score / 4)) * 100}%`,
+                width: `${
+                  Math.max(0, Math.min(1, last.outlook.score / 4)) * 100
+                }%`,
               }}
             />
           </div>

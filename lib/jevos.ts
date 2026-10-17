@@ -26,7 +26,12 @@ export async function jevosHealth(): Promise<JevosHealth> {
     });
     const latencyMs = Date.now() - started;
     if (!response.ok) {
-      return { ok: false, endpoint, latencyMs, error: "HTTP " + response.status };
+      return {
+        ok: false,
+        endpoint,
+        latencyMs,
+        error: "HTTP " + response.status,
+      };
     }
     const json = await response.json().catch(() => null);
     return {
@@ -56,7 +61,11 @@ export async function askJevos(
     response = await fetch(endpoint + "/v1/systemone", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: process.env.JEVOS_MODEL || "jev-latest", state, questions }),
+      body: JSON.stringify({
+        model: process.env.JEVOS_MODEL || "jev-latest",
+        state,
+        questions,
+      }),
       cache: "no-store",
       signal: AbortSignal.timeout(25000),
     });
@@ -72,7 +81,11 @@ export async function askJevos(
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error("jevos returned HTTP " + response.status + (text ? ": " + text.slice(0, 200) : ""));
+    throw new Error(
+      "jevos returned HTTP " +
+        response.status +
+        (text ? ": " + text.slice(0, 200) : ""),
+    );
   }
 
   const json = (await response.json()) as JevosResponse;

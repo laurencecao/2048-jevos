@@ -63,7 +63,9 @@ describe("2048 engine", () => {
     ];
     const prompt = buildMovePrompt(board, 0, 0, "assisted");
     expect(prompt.candidates.length).toBeLessThanOrEqual(2);
-    expect(prompt.legal.length).toBeGreaterThanOrEqual(prompt.candidates.length);
+    expect(prompt.legal.length).toBeGreaterThanOrEqual(
+      prompt.candidates.length,
+    );
     expect(Object.keys(prompt.criteria).sort()).toEqual(
       [...prompt.candidates].sort(),
     );

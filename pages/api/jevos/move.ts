@@ -127,7 +127,9 @@ export default async function handler(
             score: outlookAnswer.score,
             label:
               (outlookAnswer.legend &&
-                outlookAnswer.legend[String(Math.round(outlookAnswer.score))]) ||
+                outlookAnswer.legend[
+                  String(Math.round(outlookAnswer.score))
+                ]) ||
               "",
             probabilities: outlookAnswer.probabilities || {},
             confidence:
@@ -160,8 +162,7 @@ export default async function handler(
     const message = error instanceof Error ? error.message : String(error);
     return response.status(502).json({
       error: message,
-      hint:
-        "Start the local model first: cd /tmp/jev-macos/jev && ./jev serve --threads 4",
+      hint: "Start the local model first: cd /tmp/jev-macos/jev && ./jev serve --threads 4",
     });
   }
 }

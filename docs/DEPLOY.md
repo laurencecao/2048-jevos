@@ -7,9 +7,9 @@
 
 ## 0 · 装完是什么样
 
-| 地址 | 内容 |
-|---|---|
-| `http://<host>:3000/` | 可手玩的 2048 + 右侧 jevos 决策面板 |
+| 地址                           | 内容                                     |
+| ------------------------------ | ---------------------------------------- |
+| `http://<host>:3000/`          | 可手玩的 2048 + 右侧 jevos 决策面板      |
 | `http://127.0.0.1:8017/health` | jevos 健康检查（**只监听回环**，不对外） |
 
 ```
@@ -27,15 +27,15 @@
 
 ## 1 · 前置条件
 
-| 项 | 要求 | 实测环境 |
-|---|---|---|
-| OS / 架构 | **Linux x86_64** 或 **macOS arm64**（官方发布物只有这两个） | Ubuntu 22.04（内核 5.15）x86_64 · macOS 27 arm64 |
-| Node.js | **>= 18.17**（Next 14 要求），npm 随附 | Node 20.10 / 22.22 |
-| 磁盘 | **>= 1.2 GB**（模型 679 MB + 二进制与库 ~100 MB + node_modules） | 1.1–1.3 GB |
-| 内存 | 峰值 RSS **2.5–5.5 GB**（含 683 MB 模型 mmap） | M1 Pro：3.2 GB · Xeon E5-2680 v2：5.4 GB |
-| 端口 | 3000（Web，对外）、8017（jevos，仅回环） | — |
-| 网络 | 能访问 GitHub Releases；不能时用 `--assets-dir`（见 §8 坑 1） | — |
-| CPU | x86-64 需 SSE4.2/AVX；**不要求 AVX2**（老 Xeon 实测可跑） | — |
+| 项        | 要求                                                             | 实测环境                                         |
+| --------- | ---------------------------------------------------------------- | ------------------------------------------------ |
+| OS / 架构 | **Linux x86_64** 或 **macOS arm64**（官方发布物只有这两个）      | Ubuntu 22.04（内核 5.15）x86_64 · macOS 27 arm64 |
+| Node.js   | **>= 18.17**（Next 14 要求），npm 随附                           | Node 20.10 / 22.22                               |
+| 磁盘      | **>= 1.2 GB**（模型 679 MB + 二进制与库 ~100 MB + node_modules） | 1.1–1.3 GB                                       |
+| 内存      | 峰值 RSS **2.5–5.5 GB**（含 683 MB 模型 mmap）                   | M1 Pro：3.2 GB · Xeon E5-2680 v2：5.4 GB         |
+| 端口      | 3000（Web，对外）、8017（jevos，仅回环）                         | —                                                |
+| 网络      | 能访问 GitHub Releases；不能时用 `--assets-dir`（见 §8 坑 1）    | —                                                |
+| CPU       | x86-64 需 SSE4.2/AVX；**不要求 AVX2**（老 Xeon 实测可跑）        | —                                                |
 
 ---
 
@@ -57,15 +57,15 @@ bash deploy/install.sh
 5. 写 `<data>/deploy.env`（端口、线程数、仓库路径）；
 6. 调 `deploy/start.sh`：起 jevos（等健康）→ 起 Web（等 200）。
 
-| 选项 | 默认 | 说明 |
-|---|---|---|
-| `--data-dir DIR` | `<repo>/.jevos` | jevos 运行时目录（二进制、模型、日志、pid） |
-| `--port P` | `3000` | Web 端口 |
-| `--jevos-port P` | `8017` | jevos 端口 |
-| `--threads N` | `4` | jevos CPU 线程数 |
-| `--assets-dir DIR` | — | 用已下载好的发布包，完全离线安装 |
-| `--no-start` | — | 只安装，不启动 |
-| `--skip-npm` | — | 跳过 `npm ci`/`build`（依赖已就位） |
+| 选项               | 默认            | 说明                                        |
+| ------------------ | --------------- | ------------------------------------------- |
+| `--data-dir DIR`   | `<repo>/.jevos` | jevos 运行时目录（二进制、模型、日志、pid） |
+| `--port P`         | `3000`          | Web 端口                                    |
+| `--jevos-port P`   | `8017`          | jevos 端口                                  |
+| `--threads N`      | `4`             | jevos CPU 线程数                            |
+| `--assets-dir DIR` | —               | 用已下载好的发布包，完全离线安装            |
+| `--no-start`       | —               | 只安装，不启动                              |
+| `--skip-npm`       | —               | 跳过 `npm ci`/`build`（依赖已就位）         |
 
 **游戏与 jevos 放在同一个父目录**（本机实际采用的布局）：
 
@@ -86,15 +86,15 @@ bash deploy/install.sh --data-dir /data/home/laurence/game2048/jevos
 
 每一步都给出**通过判据**；任何一步不通过就停在原地，不要继续往下装。
 
-| # | 命令 | 通过判据 |
-|---|---|---|
-| 1 | `git clone <repo> && cd 2048-jevos` | 目录里有 `deploy/install.sh` |
-| 2 | `bash deploy/install.sh --no-start` | 退出码 **0**；`test -f .jevos/jev/model/model.json` 为真 |
-| 3 | `bash deploy/start.sh` | 退出码 **0**（内部最多等 jevos 90 s、Web 45 s） |
-| 4 | `curl -fsS http://127.0.0.1:8017/health` | JSON 里 `"status":"ready"` 且 `"model":"jevos-v5"` |
-| 5 | `curl -fsS http://127.0.0.1:3000/api/jevos/health` | JSON 里 `"ok":true` |
-| 6 | `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/` | `200` |
-| 7 | 见 §7 的 move 请求 | 返回里有 `"choice"` 与 `"probabilities"` |
+| #   | 命令                                                            | 通过判据                                                 |
+| --- | --------------------------------------------------------------- | -------------------------------------------------------- |
+| 1   | `git clone <repo> && cd 2048-jevos`                             | 目录里有 `deploy/install.sh`                             |
+| 2   | `bash deploy/install.sh --no-start`                             | 退出码 **0**；`test -f .jevos/jev/model/model.json` 为真 |
+| 3   | `bash deploy/start.sh`                                          | 退出码 **0**（内部最多等 jevos 90 s、Web 45 s）          |
+| 4   | `curl -fsS http://127.0.0.1:8017/health`                        | JSON 里 `"status":"ready"` 且 `"model":"jevos-v5"`       |
+| 5   | `curl -fsS http://127.0.0.1:3000/api/jevos/health`              | JSON 里 `"ok":true`                                      |
+| 6   | `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/` | `200`                                                    |
+| 7   | 见 §7 的 move 请求                                              | 返回里有 `"choice"` 与 `"probabilities"`                 |
 
 退出码约定（`install.sh`）：`2` 参数错 · `3` 平台不支持 · `4` 资产缺失 · `5` 校验失败 · `6` 下载失败 · `7` 服务未健康。
 
@@ -110,10 +110,10 @@ bash deploy/install.sh --assets-dir /path/to/assets
 
 ## 4 · 发布资产（固定版本，SHA-256 写死在脚本里）
 
-| 文件 | 大小 | SHA-256 |
-|---|---|---|
-| `jev-linux-x64.tar.gz` | 27,185,191 B | `1ce77566405514ed2f20d64f8222cf9eba9b714d332f05f6296e0cad84dd7b04` |
-| `jev-macos-arm64.tar.gz` | 22,027,370 B | `ba71df2da07d4bdf47c72771319b266347a0ae4732d0b74c8e9f227b646e7109` |
+| 文件                         | 大小          | SHA-256                                                            |
+| ---------------------------- | ------------- | ------------------------------------------------------------------ |
+| `jev-linux-x64.tar.gz`       | 27,185,191 B  | `1ce77566405514ed2f20d64f8222cf9eba9b714d332f05f6296e0cad84dd7b04` |
+| `jev-macos-arm64.tar.gz`     | 22,027,370 B  | `ba71df2da07d4bdf47c72771319b266347a0ae4732d0b74c8e9f227b646e7109` |
 | `jevos-v5-openvino-int8.zip` | 629,772,951 B | `0a1159c31b9c2abc484af9c866cdcfe5279fdf592b368636625c5a795f970acc` |
 
 下载地址：`https://github.com/feder-cr/jev/releases/download/jevos-v5/<文件名>`
@@ -266,13 +266,13 @@ rm -rf .jevos node_modules .next
 
 ## 11 · 实测基线（同一套脚本，两台机器）
 
-| 指标 | macOS M1 Pro / 8 核 / 16 GB | Linux Xeon E5-2680 v2 / 40 线程（无 AVX2） |
-|---|---|---|
-| 安装（含下载 650 MB） | ~2 min（57.5 s 下载） | 资产秒传（局域网 42 MB/s），解包+构建 ~1 min |
-| jevos 就绪 | 10.7 s（8 线程） | **4.7 s**（4 线程） |
-| 单步（assisted，28→200 tok） | 112 ms | **~2.5 s**（2.5 / 2.5 / 3.4） |
-| 单步（pure） | ~270 ms | **~4.5 s** |
-| jevos RSS | 2.49 GB 空载 / 3.21 GB 峰值 | **5.4 GB** |
-| 安装占用 | 778 MB | ~1.1 GB（含依赖） |
+| 指标                         | macOS M1 Pro / 8 核 / 16 GB | Linux Xeon E5-2680 v2 / 40 线程（无 AVX2）   |
+| ---------------------------- | --------------------------- | -------------------------------------------- |
+| 安装（含下载 650 MB）        | ~2 min（57.5 s 下载）       | 资产秒传（局域网 42 MB/s），解包+构建 ~1 min |
+| jevos 就绪                   | 10.7 s（8 线程）            | **4.7 s**（4 线程）                          |
+| 单步（assisted，28→200 tok） | 112 ms                      | **~2.5 s**（2.5 / 2.5 / 3.4）                |
+| 单步（pure）                 | ~270 ms                     | **~4.5 s**                                   |
+| jevos RSS                    | 2.49 GB 空载 / 3.21 GB 峰值 | **5.4 GB**                                   |
+| 安装占用                     | 778 MB                      | ~1.1 GB（含依赖）                            |
 
 > 延迟差异主要来自 CPU 代际（AVX-only vs Apple Silicon）与线程数；功能完全一致。

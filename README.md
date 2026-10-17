@@ -36,23 +36,23 @@ npm run dev:all                 # 起 jevos（.jevos/jev 或 JEVOS_DIR）+ next 
 
 ## 界面
 
-| 控件 | 作用 |
-|---|---|
-| **▶ 让 jevos 开始 / ⏸ 暂停** | 开始或暂停自动走；暂停后方向键可手动玩 |
-| **⏭ 单步** | 只让 jevos 走一步，然后自动暂停 |
-| **↻ 重开** | 重置棋盘；如果正在自动走，会接着新局继续 |
-| **决策模式** | 见下表 |
-| **间隔** | 两步之间的额外等待（0–1200 ms），不含模型推理时间 |
+| 控件                           | 作用                                              |
+| ------------------------------ | ------------------------------------------------- |
+| **▶ 让 jevos 开始 / ⏸ 暂停** | 开始或暂停自动走；暂停后方向键可手动玩            |
+| **⏭ 单步**                    | 只让 jevos 走一步，然后自动暂停                   |
+| **↻ 重开**                     | 重置棋盘；如果正在自动走，会接着新局继续          |
+| **决策模式**                   | 见下表                                            |
+| **间隔**                       | 两步之间的额外等待（0–1200 ms），不含模型推理时间 |
 
 棋盘上方的小圆点：绿色=空闲，橙色脉冲=jevos 正在推理，灰色=暂停。
 
 ## 三种决策模式
 
-| 模式 | 给 jevos 的候选 | 约延迟 | 说明 |
-|---|---|---|---|
-| **jevos 裁决 · 2 候选（快）**（默认） | 启发式排名前 2 的合法走法 | **~1.3 s/步** | 先用 1-ply 启发式把明显差的走法筛掉，再由 jevos 二选一。测试局 145 步 / 最高块 128 |
-| **jevos 自选 · 4 候选（慢）** | 全部合法走法，附带启发式评分 | ~2.5 s/步 | jevos 看到完整局面 + 每个方向的 `eval`，自主性更高 |
-| **纯 jevos · 无提示** | 全部合法走法，不带评分 | ~2.5 s/步 | 最"裸"的 jevos；测试局 108 步 / 最高块 64 |
+| 模式                                  | 给 jevos 的候选              | 约延迟        | 说明                                                                               |
+| ------------------------------------- | ---------------------------- | ------------- | ---------------------------------------------------------------------------------- |
+| **jevos 裁决 · 2 候选（快）**（默认） | 启发式排名前 2 的合法走法    | **~1.3 s/步** | 先用 1-ply 启发式把明显差的走法筛掉，再由 jevos 二选一。测试局 145 步 / 最高块 128 |
+| **jevos 自选 · 4 候选（慢）**         | 全部合法走法，附带启发式评分 | ~2.5 s/步     | jevos 看到完整局面 + 每个方向的 `eval`，自主性更高                                 |
+| **纯 jevos · 无提示**                 | 全部合法走法，不带评分       | ~2.5 s/步     | 最"裸"的 jevos；测试局 108 步 / 最高块 64                                          |
 
 > **为什么默认不是"纯 jevos"？** jevos 是通用决策模型（yes/no、choice、score），不是 2048 求解器。它的空间规划能力有限，纯 4 选 1 通常在 64 块左右结束。默认模式用一个很小的 1-ply 启发式做**候选过滤**，最终选择仍由模型做出；面板会把"哪些走法进了候选、概率各是多少"全部显示出来，不藏规则。想比较模型自己有多强，切到"纯 jevos"即可。
 
@@ -75,16 +75,16 @@ jevos（C++ / OpenVINO int8，4 线程，本机 CPU）
 
 关键文件：
 
-| 文件 | 职责 |
-|---|---|
-| `lib/game.ts` | 4×4 引擎：`[x,y]`→`board[y][x]`、四个方向模拟、合法走法、1-ply 启发式、提示词里的局面描述 |
-| `lib/prompt.ts` | 三种模式的 prompt：state + 每个候选一行说明 + choice/score 问题 |
-| `lib/jevos.ts` | jevos HTTP 客户端（`/health`、`/v1/systemone`），25 s 超时 |
-| `pages/api/jevos/move.ts` | 校验棋盘、枚举合法走法、调模型、把 choice 概率和 outlook 原样返回；只有一个合法走法时不调用模型 |
-| `pages/api/jevos/health.ts` | 面板左上角那个绿点就是它 |
-| `context/ai-context.tsx` | 自动循环、暂停/单步/重开、动画等待、no-op 防护（同一局面某方向不生效就排除它重试） |
-| `components/ai-panel.tsx` | 面板 UI |
-| `components/board.tsx` | 原游戏棋盘；AI 运行时屏蔽方向键 |
+| 文件                        | 职责                                                                                            |
+| --------------------------- | ----------------------------------------------------------------------------------------------- |
+| `lib/game.ts`               | 4×4 引擎：`[x,y]`→`board[y][x]`、四个方向模拟、合法走法、1-ply 启发式、提示词里的局面描述       |
+| `lib/prompt.ts`             | 三种模式的 prompt：state + 每个候选一行说明 + choice/score 问题                                 |
+| `lib/jevos.ts`              | jevos HTTP 客户端（`/health`、`/v1/systemone`），25 s 超时                                      |
+| `pages/api/jevos/move.ts`   | 校验棋盘、枚举合法走法、调模型、把 choice 概率和 outlook 原样返回；只有一个合法走法时不调用模型 |
+| `pages/api/jevos/health.ts` | 面板左上角那个绿点就是它                                                                        |
+| `context/ai-context.tsx`    | 自动循环、暂停/单步/重开、动画等待、no-op 防护（同一局面某方向不生效就排除它重试）              |
+| `components/ai-panel.tsx`   | 面板 UI                                                                                         |
+| `components/board.tsx`      | 原游戏棋盘；AI 运行时屏蔽方向键                                                                 |
 
 一次请求的 prompt 长这样（面板里可展开看全文）：
 
@@ -119,7 +119,12 @@ curl -s -X POST http://localhost:3000/api/jevos/move \
     "probabilities": { "left": 0.51, "up": 0.49 },
     "confidence": 0.02
   },
-  "outlook": { "score": 1.8, "label": "ok", "probabilities": {}, "confidence": 0.29 },
+  "outlook": {
+    "score": 1.8,
+    "label": "ok",
+    "probabilities": {},
+    "confidence": 0.29
+  },
   "legal": ["left", "up", "down"],
   "candidates": ["left", "up"],
   "prompt": { "state": "...", "instructions": "...", "criteria": {} },
@@ -144,16 +149,16 @@ npm run lint                            # No ESLint warnings or errors
 
 ## 环境变量
 
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `JEVOS_URL` | `http://127.0.0.1:8017` | jevos 地址 |
-| `JEVOS_MODEL` | `jev-latest` | 请求里的 model 名 |
-| `JEVOS_DIR` | `<repo>/.jevos/jev` | `dev:all` 启动 jevos 时用的目录 |
-| `JEVOS_THREADS` | `4` | `dev:all` 传给 `jev serve --threads` |
-| `JEVOS_DATA_DIR` | `<repo>/.jevos` | 部署脚本的数据目录（二进制、模型、日志） |
-| `WEB_PORT` / `JEVOS_PORT` | `3000` / `8017` | 部署脚本使用的端口 |
-| `JEVOS_ASSET_BASE` | GitHub Releases | 资产下载基址（镜像/代理） |
-| `PORT` | `3000` | Next.js 端口 |
+| 变量                      | 默认                    | 说明                                     |
+| ------------------------- | ----------------------- | ---------------------------------------- |
+| `JEVOS_URL`               | `http://127.0.0.1:8017` | jevos 地址                               |
+| `JEVOS_MODEL`             | `jev-latest`            | 请求里的 model 名                        |
+| `JEVOS_DIR`               | `<repo>/.jevos/jev`     | `dev:all` 启动 jevos 时用的目录          |
+| `JEVOS_THREADS`           | `4`                     | `dev:all` 传给 `jev serve --threads`     |
+| `JEVOS_DATA_DIR`          | `<repo>/.jevos`         | 部署脚本的数据目录（二进制、模型、日志） |
+| `WEB_PORT` / `JEVOS_PORT` | `3000` / `8017`         | 部署脚本使用的端口                       |
+| `JEVOS_ASSET_BASE`        | GitHub Releases         | 资产下载基址（镜像/代理）                |
+| `PORT`                    | `3000`                  | Next.js 端口                             |
 
 ## 已知限制
 

@@ -65,7 +65,9 @@ if (await healthy()) {
     process.exit(1);
   }
 
-  console.log("[dev] starting jevos: " + JEVOS_BIN + " serve --threads " + THREADS);
+  console.log(
+    "[dev] starting jevos: " + JEVOS_BIN + " serve --threads " + THREADS,
+  );
   jevos = spawn(JEVOS_BIN, ["serve", "--threads", THREADS], {
     cwd: JEVOS_DIR,
     stdio: "inherit",
