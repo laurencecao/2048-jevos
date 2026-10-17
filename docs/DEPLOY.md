@@ -59,18 +59,20 @@ bash deploy/install.sh
 5. 写 `<data>/deploy.env`（端口、线程数、仓库路径）；
 6. 调 `deploy/start.sh`：起 jevos（等健康）→ 起 Web（等 200）。
 
-| 选项                | 默认                     | 说明                                                     |
-| ------------------- | ------------------------ | -------------------------------------------------------- |
-| `--data-dir DIR`    | `<repo>/.jevos`          | jevos 运行时目录（二进制、模型、日志、pid）              |
-| `--port P`          | `3000`                   | Web 端口                                                 |
-| `--jevos-port P`    | `8017`                   | jevos 端口                                               |
-| `--threads N`       | `4`                      | jevos CPU 线程数                                         |
-| `--provider NAME`   | `jevos`                  | 默认引擎：`jevos` / `ollama`（ollama 时跳过 jevos 资产） |
-| `--ollama-url URL`  | `http://127.0.0.1:11434` | ollama 地址                                              |
-| `--ollama-model ID` | `clef-flash:9b`          | ollama decision 模型                                     |
-| `--assets-dir DIR`  | —                        | 用已下载好的发布包，完全离线安装                         |
-| `--no-start`        | —                        | 只安装，不启动                                           |
-| `--skip-npm`        | —                        | 跳过 `npm ci`/`build`（依赖已就位）                      |
+| 选项                    | 默认                                | 说明                                                               |
+| ----------------------- | ----------------------------------- | ------------------------------------------------------------------ |
+| `--data-dir DIR`        | `<repo>/.jevos`                     | jevos 运行时目录（二进制、模型、日志、pid）                        |
+| `--port P`              | `3000`                              | Web 端口                                                           |
+| `--jevos-port P`        | `8017`                              | jevos 端口                                                         |
+| `--threads N`           | `4`                                 | jevos CPU 线程数                                                   |
+| `--provider NAME`       | `jevos`                             | 默认引擎：`jevos` / `ollama` / `startlux`（后两者跳过 jevos 资产） |
+| `--ollama-url URL`      | `http://127.0.0.1:11434`            | ollama 地址                                                        |
+| `--ollama-model ID`     | `clef-flash:9b`                     | ollama decision 模型                                               |
+| `--startlux-url URL`    | `http://127.0.0.1:8081`             | startlux-decide 地址                                               |
+| `--startlux-model NAME` | `StartLux-Decision-v1.1-9B-Instant` | startlux 健康检查里报告的名字                                      |
+| `--assets-dir DIR`      | —                                   | 用已下载好的发布包，完全离线安装                                   |
+| `--no-start`            | —                                   | 只安装，不启动                                                     |
+| `--skip-npm`            | —                                   | 跳过 `npm ci`/`build`（依赖已就位）                                |
 
 **游戏与 jevos 放在同一个父目录**（本机实际采用的布局）：
 
@@ -140,6 +142,60 @@ curl -s -X POST http://127.0.0.1:3000/api/jevos/move \
 2. **保持常驻**：`OLLAMA_KEEP_ALIVE=30m`（默认），app 每次请求都会带 `keep_alive`。
 3. **不能用 chat/generate**：`clef-flash:9b` 只支持 decision 协议，`/api/chat`、`/api/generate` 返回 `does not support chat/generate` —— 这是正常的，必须走 `/v1/systemone`。
 4. **页面也能切**：右侧「引擎」下拉的切换存在浏览器 `localStorage`，只影响当前浏览器；服务端默认值仍由 `AI_PROVIDER` 决定。
+
+---
+
+## 2.2 · StartLux-Decision 后端（GGUF + llama.cpp，可选）
+
+StartLux-Decision 与 ollama 的 clef 同类：`startlux-decide serve` 对外同样是 **`/v1/systemone`**，
+所以 app 侧只换 endpoint 与模型名。区别是它**分两段**：llama-server 跑 GGUF，startlux-decide 在前面
+做 prompt 渲染、选项字母读出与概率归一。
+
+**前提**
+
+| 项           | 要求                                                                                                                                                                        |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 代码         | `pip install startlux-decide`（Apache-2.0；依赖 aiohttp、transformers）                                                                                                     |
+| 模型         | GGUF（Q8_0 9.53 GB）+ **配套文件**：`config.json`、`decision_config.json`、`tokenizer*.json`、`vocab.json`、`merges.txt`、`chat_template.jinja`、`preprocessor_config.json` |
+| llama-server | 能加载该 GGUF；**Instant 模型是双向注意力** ⇒ `--parallel 1 --ctx-checkpoints 0 -b N -ub N`（N ≥ 最长 prompt）                                                              |
+| 环境变量     | `STARTLUX_LLAMACPP_BIDIR=server`（stock llama-server；patched server 才能用 `request`）                                                                                     |
+| 端口         | llama-server `8018`；startlux-decide `8081`（app 默认指向 8081）                                                                                                            |
+| 显存         | 9B Q8_0 约 9.5 GB，`-ngl 99` 可分摊到多卡                                                                                                                                   |
+
+**启动**
+
+```bash
+llama-server -m <folder>/StartLux-Decision-v1.1-9B-Instant-Q8_0.gguf \
+  -ngl 99 -c 20480 --parallel 1 --ctx-checkpoints 0 -b 16384 -ub 16384 --port 8018
+
+STARTLUX_LLAMACPP_BIDIR=server startlux-decide serve \
+  --model <folder> --backend llamacpp --llamacpp-url http://127.0.0.1:8018 \
+  --port 8081 --name StartLux-Decision-v1.1-9B-Instant
+```
+
+**切换**
+
+```bash
+bash deploy/switch-provider.sh startlux
+# 或写 deploy.env：AI_PROVIDER="startlux" / STARTLUX_URL / STARTLUX_MODEL
+```
+
+**验收**
+
+```bash
+curl -s http://127.0.0.1:8081/health
+# {"status":"ok","model":"StartLux-Decision-v1.1-9B-Instant","kind":"instant",...}
+
+curl -s 'http://127.0.0.1:3000/api/jevos/health?provider=startlux'
+# {"ok":true,"provider":"startlux","model":"StartLux-Decision-v1.1-9B-Instant",...}
+```
+
+**必须知道的四点**
+
+1. **只有 GGUF 不够**：`decision_config.json` 里的字母 token id、温度、双向注意力开关缺一不可；缺文件时 serve 会直接报错。
+2. **不要用 llama-server 的 `/v1/chat/completions` 顶替**：普通 chat 不产出选项字母概率，结果不可用。
+3. **Instant 必须整段一次读**：`--parallel 1`、`--ctx-checkpoints 0`、`-b/-ub` 不小于 prompt；否则概率会和 BF16 有偏差。
+4. **服务是两段**：8018 是 llama-server（原始 API，没有 `/v1/systemone`），8081 才是 decision API；app 连 8081。
 
 ---
 

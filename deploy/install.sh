@@ -9,9 +9,11 @@
 #   --port PORT         web port (default: 3000)
 #   --jevos-port PORT   jevos port (default: 8017)
 #   --threads N         jevos CPU threads (default: 4)
-#   --provider NAME     default engine: jevos | ollama (default: jevos)
-#   --ollama-url URL    ollama base URL (default: http://127.0.0.1:11434)
-#   --ollama-model ID   ollama decision model (default: clef-flash:9b)
+#   --provider NAME       default engine: jevos | ollama | startlux (default: jevos)
+#   --ollama-url URL      ollama base URL (default: http://127.0.0.1:11434)
+#   --ollama-model ID     ollama decision model (default: clef-flash:9b)
+#   --startlux-url URL    startlux-decide URL (default: http://127.0.0.1:8081)
+#   --startlux-model NAME model name reported by startlux (default: StartLux-Decision-v1.1-9B-Instant)
 #   --assets-dir DIR    use already-downloaded release files from DIR
 #   --no-start          install only, do not start services
 #   --skip-npm          skip npm install + build (deps already present)
@@ -32,6 +34,8 @@ THREADS="${JEVOS_THREADS:-4}"
 AI_PROVIDER="${AI_PROVIDER:-jevos}"
 OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-clef-flash:9b}"
+STARTLUX_URL="${STARTLUX_URL:-http://127.0.0.1:8081}"
+STARTLUX_MODEL="${STARTLUX_MODEL:-StartLux-Decision-v1.1-9B-Instant}"
 ASSETS_DIR=""
 DO_START=1
 SKIP_NPM=0
@@ -51,6 +55,8 @@ while [ $# -gt 0 ]; do
     --provider)   AI_PROVIDER="$2"; shift 2 ;;
     --ollama-url) OLLAMA_URL="$2"; shift 2 ;;
     --ollama-model) OLLAMA_MODEL="$2"; shift 2 ;;
+    --startlux-url) STARTLUX_URL="$2"; shift 2 ;;
+    --startlux-model) STARTLUX_MODEL="$2"; shift 2 ;;
     --assets-dir) ASSETS_DIR="$2"; shift 2 ;;
     --no-start)   DO_START=0; shift ;;
     --skip-npm)   SKIP_NPM=1; shift ;;
@@ -60,8 +66,8 @@ while [ $# -gt 0 ]; do
 done
 
 case "$AI_PROVIDER" in
-  jevos|ollama) ;;
-  *) echo "unknown provider: $AI_PROVIDER (use jevos or ollama)" >&2; exit 2 ;;
+  jevos|ollama|startlux) ;;
+  *) echo "unknown provider: $AI_PROVIDER (use jevos, ollama or startlux)" >&2; exit 2 ;;
 esac
 
 # stdout is reserved for machine-readable paths; all progress goes to stderr
@@ -133,8 +139,8 @@ ensure_asset() { # name sha -> echoes verified path
 # ---------- 3. binary + model -------------------------------------------------
 JEVDIR="$DATA_DIR/jev"
 mkdir -p "$DATA_DIR"
-if [ "$AI_PROVIDER" = "ollama" ]; then
-  log "provider=ollama: skipping jevos assets (re-run with --provider jevos to install them)"
+if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "startlux" ]; then
+  log "provider=$AI_PROVIDER: skipping jevos assets (re-run with --provider jevos to install them)"
 elif [ -x "$JEVDIR/jev" ] && [ -f "$JEVDIR/model/model.json" ] && [ -f "$JEVDIR/model/openvino_model.bin" ]; then
   log "jevos binary and model already installed, skipping"
 else
@@ -179,6 +185,8 @@ JEVOS_THREADS="$THREADS"
 AI_PROVIDER="$AI_PROVIDER"
 OLLAMA_URL="$OLLAMA_URL"
 OLLAMA_MODEL="$OLLAMA_MODEL"
+STARTLUX_URL="$STARTLUX_URL"
+STARTLUX_MODEL="$STARTLUX_MODEL"
 EOF
 chmod 644 "$DATA_DIR/deploy.env"
 # remember the data dir so start/stop/status work without env vars
@@ -190,6 +198,9 @@ if [ -d "$JEVDIR/model" ]; then
 fi
 if [ "$AI_PROVIDER" = "ollama" ]; then
   log "ollama: $OLLAMA_URL model=$OLLAMA_MODEL"
+fi
+if [ "$AI_PROVIDER" = "startlux" ]; then
+  log "startlux: $STARTLUX_URL model=$STARTLUX_MODEL (run startlux-decide separately)"
 fi
 
 if [ "$DO_START" = 1 ]; then

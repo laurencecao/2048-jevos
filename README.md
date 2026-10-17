@@ -46,14 +46,16 @@ npm run dev:all                 # 起 jevos（.jevos/jev 或 JEVOS_DIR）+ next 
 
 `JEVOS_DIR` 指向 jevos 目录（默认 `<repo>/.jevos/jev`）；`JEVOS_URL` 只改 API 指向。
 
-## 推理引擎：jevos 与 ollama（可在配置中切换）
+## 推理引擎：jevos、ollama 与 StartLux（可在配置中切换）
 
-| 引擎            | 传输                | 默认地址                 | 默认模型                        | 适用                         |
-| --------------- | ------------------- | ------------------------ | ------------------------------- | ---------------------------- |
-| `jevos`（默认） | CPU · OpenVINO int8 | `http://127.0.0.1:8017`  | `jev-latest`（实际 `jevos-v5`） | 单机无 GPU，零依赖           |
-| `ollama`        | GPU（有卡时）       | `http://127.0.0.1:11434` | `clef-flash:9b`                 | 已有 ollama / GPU 空闲的机器 |
+| 引擎            | 传输                | 默认地址                 | 默认模型                            | 适用                         |
+| --------------- | ------------------- | ------------------------ | ----------------------------------- | ---------------------------- |
+| `jevos`（默认） | CPU · OpenVINO int8 | `http://127.0.0.1:8017`  | `jev-latest`（实际 `jevos-v5`）     | 单机无 GPU，零依赖           |
+| `ollama`        | GPU（有卡时）       | `http://127.0.0.1:11434` | `clef-flash:9b`                     | 已有 ollama / GPU 空闲的机器 |
+| `startlux`      | GPU · llama.cpp     | `http://127.0.0.1:8081`  | `StartLux-Decision-v1.1-9B-Instant` | 有 GGUF + 想换一个决策模型   |
 
-ollama ≥ 0.40 为 decision 模型（如 `clef-flash:9b`）提供 **`/v1/systemone`**，请求与响应和 jevos 逐字段一致：
+ollama ≥ 0.40 为 decision 模型（如 `clef-flash:9b`）提供 **`/v1/systemone`**，StartLux-Decision 的
+`startlux-decide serve` 也提供同一协议；请求与响应和 jevos 逐字段一致：
 
 ```
 POST {endpoint}/v1/systemone   { model, state, questions }  →  { answers, usage }
@@ -66,7 +68,7 @@ POST {endpoint}/v1/systemone   { model, state, questions }  →  { answers, usag
 
 ### 三种切换方式（优先级从高到低）
 
-1. **页面右侧「引擎」下拉** —— 只影响当前浏览器（`localStorage`），适合当场对比两个模型；
+1. **页面右侧「引擎」下拉** —— 只影响当前浏览器（`localStorage`），适合当场对比几个模型；
 2. **服务端配置 `AI_PROVIDER`** —— 决定"没有本地选择时"的默认引擎；
 3. **请求体 `provider` 字段** —— 直接调 API 时逐次指定。
 
@@ -100,13 +102,38 @@ ollama pull clef-flash:9b                               # 10.6 GB（Q8_0，9.1B�
 真实对局 120 步实测 **assisted 均值 1.39 s/步、hinted 均值 1.00 s/步**（含 HTTP 与 Next 转发）。
 再用 `OLLAMA_KEEP_ALIVE`（默认 `30m`）让模型常驻，避免每隔半小时重新加载。
 
+### StartLux-Decision（GGUF + llama.cpp）
+
+StartLux 是一个**生成式决策模型**（Qwen3.5-9B 后训练，Q8_0 9.53 GB），它的概率读出口令、选项字母
+映射和温度都写在模型文件夹里，**不是** llama.cpp 自带的 chat 能力。因此要把两段接起来：
+
+```bash
+# 1) llama-server 只负责跑 GGUF（Instant 模型是双向注意力，这几个参数不能省）
+llama-server -m <folder>/StartLux-Decision-v1.1-9B-Instant-Q8_0.gguf \
+  -ngl 99 -c 20480 --parallel 1 --ctx-checkpoints 0 -b 16384 -ub 16384 --port 8018
+
+# 2) 决策服务在 8081，对外提供 /v1/systemone
+pip install startlux-decide
+STARTLUX_LLAMACPP_BIDIR=server startlux-decide serve \
+  --model <folder> --backend llamacpp --llamacpp-url http://127.0.0.1:8018 \
+  --port 8081 --name StartLux-Decision-v1.1-9B-Instant
+```
+
+- **模型文件夹不止 GGUF**：还需要 `config.json`、`decision_config.json`、`tokenizer.json`、
+  `tokenizer_config.json`、`vocab.json`、`merges.txt`、`chat_template.jinja`、`preprocessor_config.json`
+  —— 从 BF16 仓库下载时用 `--exclude "*.safetensors"` 取这些文件。
+- **不能拿 llama-server 的 `/v1/chat/completions` 顶替**：普通 chat 不会产出 StartLux 的选项字母概率。
+- 切换：`AI_PROVIDER=startlux` + `STARTLUX_URL` / `STARTLUX_MODEL`，或
+  `bash deploy/switch-provider.sh startlux`。
+- 健康：`curl -s http://127.0.0.1:8081/health` → `{"status":"ok","model":"...","kind":"instant"}`。
+
 ## 界面
 
 | 控件                        | 作用                                              |
 | --------------------------- | ------------------------------------------------- |
 | **▶ 让 AI 开始 / ⏸ 暂停** | 开始或暂停自动走；暂停后方向键可手动玩            |
 | **⏭ 单步**                 | 只让当前引擎走一步，然后自动暂停                  |
-| **引擎**                    | jevos / ollama，切换只影响当前浏览器              |
+| **引擎**                    | jevos / ollama / startlux，切换只影响当前浏览器   |
 | **↻ 重开**                  | 重置棋盘；如果正在自动走，会接着新局继续          |
 | **决策模式**                | 见下表                                            |
 | **间隔**                    | 两步之间的额外等待（0–1200 ms），不含模型推理时间 |
@@ -134,7 +161,8 @@ ollama pull clef-flash:9b                               # 10.6 GB（Q8_0，9.1B�
 Next.js API 路由（同源，无 CORS）
   │  按 provider 选引擎（lib/engine.ts）
   ├──> jevos  http://127.0.0.1:8017/v1/systemone   （CPU · OpenVINO int8）
-  └──> ollama http://127.0.0.1:11434/v1/systemone  （GPU · clef-flash:9b）
+  ├──> ollama http://127.0.0.1:11434/v1/systemone  （GPU · clef-flash:9b）
+  └──> startlux http://127.0.0.1:8081/v1/systemone （GPU · llama.cpp + GGUF）
   │  choice + 每个候选概率 + score 形势判断
   ▼
 浏览器用游戏自己的 reducer 落子，等动画结束，再走下一步
@@ -142,16 +170,16 @@ Next.js API 路由（同源，无 CORS）
 
 关键文件：
 
-| 文件                        | 职责                                                                                            |
-| --------------------------- | ----------------------------------------------------------------------------------------------- |
-| `lib/game.ts`               | 4×4 引擎：`[x,y]`→`board[y][x]`、四个方向模拟、合法走法、1-ply 启发式、提示词里的局面描述       |
-| `lib/prompt.ts`             | 三种模式的 prompt：state + 每个候选一行说明 + choice/score 问题                                 |
-| `lib/engine.ts`             | 引擎注册与解析（jevos / ollama）、健康检查、`/v1/systemone` 客户端；ollama 冷启动放宽到 180 s   |
-| `pages/api/jevos/move.ts`   | 校验棋盘、枚举合法走法、调模型、把 choice 概率和 outlook 原样返回；只有一个合法走法时不调用模型 |
-| `pages/api/jevos/health.ts` | 面板左上角那个绿点就是它                                                                        |
-| `context/ai-context.tsx`    | 自动循环、暂停/单步/重开、动画等待、no-op 防护（同一局面某方向不生效就排除它重试）              |
-| `components/ai-panel.tsx`   | 面板 UI                                                                                         |
-| `components/board.tsx`      | 原游戏棋盘；AI 运行时屏蔽方向键                                                                 |
+| 文件                        | 职责                                                                                                     |
+| --------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `lib/game.ts`               | 4×4 引擎：`[x,y]`→`board[y][x]`、四个方向模拟、合法走法、1-ply 启发式、提示词里的局面描述                |
+| `lib/prompt.ts`             | 三种模式的 prompt：state + 每个候选一行说明 + choice/score 问题                                          |
+| `lib/engine.ts`             | 引擎注册与解析（jevos / ollama / startlux）、健康检查、`/v1/systemone` 客户端；ollama 冷启动放宽到 180 s |
+| `pages/api/jevos/move.ts`   | 校验棋盘、枚举合法走法、调模型、把 choice 概率和 outlook 原样返回；只有一个合法走法时不调用模型          |
+| `pages/api/jevos/health.ts` | 面板左上角那个绿点就是它                                                                                 |
+| `context/ai-context.tsx`    | 自动循环、暂停/单步/重开、动画等待、no-op 防护（同一局面某方向不生效就排除它重试）                       |
+| `components/ai-panel.tsx`   | 面板 UI                                                                                                  |
+| `components/board.tsx`      | 原游戏棋盘；AI 运行时屏蔽方向键                                                                          |
 
 一次请求的 prompt 长这样（面板里可展开看全文）：
 

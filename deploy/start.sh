@@ -15,6 +15,8 @@ THREADS="${JEVOS_THREADS:-4}"
 AI_PROVIDER="${AI_PROVIDER:-jevos}"
 OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-clef-flash:9b}"
+STARTLUX_URL="${STARTLUX_URL:-http://127.0.0.1:8081}"
+STARTLUX_MODEL="${STARTLUX_MODEL:-StartLux-Decision-v1.1-9B-Instant}"
 LOGS="$DATA_DIR/logs"; mkdir -p "$LOGS"
 
 log() { printf '\033[1;36m[start]\033[0m %s\n' "$*"; }
@@ -28,8 +30,8 @@ wait_healthy() { # url timeout_s
   return 1
 }
 
-if [ "$AI_PROVIDER" = "ollama" ]; then
-  log "provider=ollama: not starting jevos (set AI_PROVIDER=jevos to switch back)"
+if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "startlux" ]; then
+  log "provider=$AI_PROVIDER: not starting jevos (set AI_PROVIDER=jevos to switch back)"
 elif healthy "http://127.0.0.1:$JEVOS_PORT/health"; then
   log "jevos already healthy on $JEVOS_PORT"
 else
@@ -52,6 +54,7 @@ else
   # call the next binary directly: keeps the PID stable for stop.sh
   ( cd "$REPO_DIR" && AI_PROVIDER="$AI_PROVIDER" \
       OLLAMA_URL="$OLLAMA_URL" OLLAMA_MODEL="$OLLAMA_MODEL" \
+      STARTLUX_URL="$STARTLUX_URL" STARTLUX_MODEL="$STARTLUX_MODEL" \
       JEVOS_URL="http://127.0.0.1:$JEVOS_PORT" \
       exec nohup node node_modules/next/dist/bin/next start -p "$WEB_PORT" \
       > "$LOGS/web.log" 2>&1 < /dev/null ) &
@@ -63,6 +66,9 @@ fi
 if [ "$AI_PROVIDER" = "ollama" ]; then
   ollama_ok="$(curl -fsS -m 3 "$OLLAMA_URL/api/tags" >/dev/null 2>&1 && echo yes || echo no)"
   log "ready: http://127.0.0.1:$WEB_PORT/  (engine=ollama $OLLAMA_MODEL at $OLLAMA_URL, reachable=$ollama_ok)"
+elif [ "$AI_PROVIDER" = "startlux" ]; then
+  startlux_ok="$(curl -fsS -m 3 "$STARTLUX_URL/health" >/dev/null 2>&1 && echo yes || echo no)"
+  log "ready: http://127.0.0.1:$WEB_PORT/  (engine=startlux $STARTLUX_MODEL at $STARTLUX_URL, reachable=$startlux_ok)"
 else
   log "ready: http://127.0.0.1:$WEB_PORT/  (engine=jevos on :$JEVOS_PORT)"
 fi

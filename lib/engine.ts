@@ -6,11 +6,13 @@
  *     -> { answers, usage }
  *
  * jevos (feder-cr/jev) speaks it natively. ollama >= 0.40 exposes the same
- * route for decision models such as clef-flash:9b, so switching engines only
- * changes the endpoint and the model id - the prompts stay untouched.
+ * route for decision models such as clef-flash:9b, and the StartLux-Decision
+ * server (startlux-decide serve, GGUF on llama.cpp) serves the same TypeSafe
+ * format. Switching engines therefore only changes the endpoint and the model
+ * id - the prompts stay untouched.
  */
 
-export type ProviderId = "jevos" | "ollama";
+export type ProviderId = "jevos" | "ollama" | "startlux";
 
 export type EngineConfig = {
   id: ProviderId;
@@ -41,7 +43,7 @@ export type SystemOneResponse = {
   usage?: { input_tokens?: number; output_tokens?: number };
 };
 
-export const PROVIDERS: ProviderId[] = ["jevos", "ollama"];
+export const PROVIDERS: ProviderId[] = ["jevos", "ollama", "startlux"];
 
 const DEFAULTS = {
   jevos: {
@@ -58,6 +60,21 @@ const DEFAULTS = {
     transport: "gpu" as const,
     hint: "Start ollama and pull the model: ollama pull clef-flash:9b",
   },
+  startlux: {
+    // startlux-decide serve fronts llama-server: 8081 is the decision API,
+    // 8018 is the raw llama-server it reads probabilities from.
+    url: "http://127.0.0.1:8081",
+    model: "StartLux-Decision-v1.1-9B-Instant",
+    label: "startlux",
+    transport: "gpu" as const,
+    hint: "Start the StartLux server: startlux-decide serve --model <folder> --backend llamacpp --llamacpp-url http://127.0.0.1:8018 --port 8081",
+  },
+};
+
+const ENV_KEYS: Record<ProviderId, { url: string; model: string }> = {
+  jevos: { url: "JEVOS_URL", model: "JEVOS_MODEL" },
+  ollama: { url: "OLLAMA_URL", model: "OLLAMA_MODEL" },
+  startlux: { url: "STARTLUX_URL", model: "STARTLUX_MODEL" },
 };
 
 function env(name: string): string | undefined {
@@ -66,7 +83,7 @@ function env(name: string): string | undefined {
 }
 
 export function isProviderId(value: unknown): value is ProviderId {
-  return value === "jevos" || value === "ollama";
+  return value === "jevos" || value === "ollama" || value === "startlux";
 }
 
 /** AI_PROVIDER picks the server-side default; anything unknown means jevos. */
@@ -80,23 +97,13 @@ export function resolveEngine(provider?: unknown): EngineConfig {
     ? provider
     : defaultProviderId();
   const fallback = DEFAULTS[id];
-
-  if (id === "jevos") {
-    return {
-      id,
-      label: fallback.label,
-      endpoint: (env("JEVOS_URL") || fallback.url).replace(/\/+$/, ""),
-      model: env("JEVOS_MODEL") || fallback.model,
-      transport: fallback.transport,
-      hint: fallback.hint,
-    };
-  }
+  const keys = ENV_KEYS[id];
 
   return {
     id,
     label: fallback.label,
-    endpoint: (env("OLLAMA_URL") || fallback.url).replace(/\/+$/, ""),
-    model: env("OLLAMA_MODEL") || fallback.model,
+    endpoint: (env(keys.url) || fallback.url).replace(/\/+$/, ""),
+    model: env(keys.model) || fallback.model,
     transport: fallback.transport,
     hint: fallback.hint,
   };
@@ -148,6 +155,34 @@ export async function engineHealth(provider?: unknown): Promise<EngineHealth> {
         latencyMs,
         model:
           json && typeof json.model === "string" ? json.model : engine.model,
+      };
+    }
+
+    if (engine.id === "startlux") {
+      // startlux-decide answers GET /health with {"status":"ok","model":...}.
+      const response = await fetch(engine.endpoint + "/health", {
+        cache: "no-store",
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) {
+        return failure(engine, started, "HTTP " + response.status);
+      }
+      const json = (await response.json().catch(() => null)) as {
+        status?: string;
+        model?: string;
+        kind?: string;
+      } | null;
+      if (!json || json.status !== "ok") {
+        return failure(engine, started, "startlux health is not ok");
+      }
+      return {
+        ok: true,
+        provider: engine.id,
+        label: engine.label,
+        endpoint: engine.endpoint,
+        transport: engine.transport,
+        latencyMs: Date.now() - started,
+        model: json.model || engine.model,
       };
     }
 
@@ -230,8 +265,11 @@ export async function askEngine(
   }
 
   // ollama may need to load the model on the first request, so allow more
-  // time than jevos, which loads its model at startup.
-  const timeoutMs = engine.id === "ollama" ? 180000 : 30000;
+  // time than jevos, which loads its model at startup. startlux reads an
+  // Instant prompt in one llama.cpp pass; the first request may still wait
+  // for a cold page cache.
+  const timeoutMs =
+    engine.id === "ollama" ? 180000 : engine.id === "startlux" ? 120000 : 30000;
 
   let response: Response;
   try {

@@ -18,20 +18,30 @@ ENV_FILE="$DATA_DIR/deploy.env"
 
 PROVIDER="${1:-}"
 MODEL="${2:-}"
-if [ "$PROVIDER" != "jevos" ] && [ "$PROVIDER" != "ollama" ]; then
-  echo "usage: bash deploy/switch-provider.sh jevos|ollama [model]" >&2
-  exit 2
-fi
+case "$PROVIDER" in
+  jevos|ollama|startlux) ;;
+  *)
+    echo "usage: bash deploy/switch-provider.sh jevos|ollama|startlux [model]" >&2
+    exit 2
+    ;;
+esac
 [ -f "$ENV_FILE" ] || { echo "missing $ENV_FILE; run deploy/install.sh first" >&2; exit 1; }
 
-# Rewrite (or append) AI_PROVIDER, and OLLAMA_MODEL when one was given.
+# Rewrite AI_PROVIDER; keep both model keys, and override the one that was given.
 tmp="$(mktemp)"
-grep -v -E '^(AI_PROVIDER|OLLAMA_MODEL)=' "$ENV_FILE" > "$tmp" || true
+grep -v -E '^(AI_PROVIDER|OLLAMA_MODEL|STARTLUX_MODEL)=' "$ENV_FILE" > "$tmp" || true
 echo "AI_PROVIDER=\"$PROVIDER\"" >> "$tmp"
+grep -E '^OLLAMA_MODEL=' "$ENV_FILE" >> "$tmp" || echo "OLLAMA_MODEL=\"clef-flash:9b\"" >> "$tmp"
+grep -E '^STARTLUX_MODEL=' "$ENV_FILE" >> "$tmp" || echo "STARTLUX_MODEL=\"StartLux-Decision-v1.1-9B-Instant\"" >> "$tmp"
 if [ -n "$MODEL" ]; then
-  echo "OLLAMA_MODEL=\"$MODEL\"" >> "$tmp"
-else
-  grep -E '^OLLAMA_MODEL=' "$ENV_FILE" >> "$tmp" || echo "OLLAMA_MODEL=\"clef-flash:9b\"" >> "$tmp"
+  case "$PROVIDER" in
+    ollama)
+      sed -i.bak -E "s|^OLLAMA_MODEL=.*|OLLAMA_MODEL=\"$MODEL\"|" "$tmp" && rm -f "$tmp.bak"
+      ;;
+    startlux)
+      sed -i.bak -E "s|^STARTLUX_MODEL=.*|STARTLUX_MODEL=\"$MODEL\"|" "$tmp" && rm -f "$tmp.bak"
+      ;;
+  esac
 fi
 mv "$tmp" "$ENV_FILE"
 

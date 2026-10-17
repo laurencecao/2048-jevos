@@ -13,6 +13,8 @@ WEB_PORT="${WEB_PORT:-3000}"; JEVOS_PORT="${JEVOS_PORT:-8017}"
 AI_PROVIDER="${AI_PROVIDER:-jevos}"
 OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-clef-flash:9b}"
+STARTLUX_URL="${STARTLUX_URL:-http://127.0.0.1:8081}"
+STARTLUX_MODEL="${STARTLUX_MODEL:-StartLux-Decision-v1.1-9B-Instant}"
 
 echo "repo:  $REPO_DIR"
 echo "data:  $DATA_DIR"
@@ -22,8 +24,8 @@ probe() { # name port path
   pid="$(cat "$DATA_DIR/$1.pid" 2>/dev/null || echo -)"
   echo "$1: http $code  pid $pid  port $2"
 }
-if [ "$AI_PROVIDER" = "ollama" ]; then
-  echo "jevos: not started (provider=ollama)"
+if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "startlux" ]; then
+  echo "jevos: not started (provider=$AI_PROVIDER)"
 else
   probe jevos "$JEVOS_PORT" /health
 fi
@@ -32,6 +34,9 @@ echo "engine: $AI_PROVIDER"
 if [ "$AI_PROVIDER" = "ollama" ]; then
   code="$(curl -s -o /dev/null -w '%{http_code}' -m 3 "$OLLAMA_URL/api/version" || true)"
   echo "ollama: http $code  model $OLLAMA_MODEL  url $OLLAMA_URL"
+elif [ "$AI_PROVIDER" = "startlux" ]; then
+  code="$(curl -s -o /dev/null -w '%{http_code}' -m 3 "$STARTLUX_URL/health" || true)"
+  echo "startlux: http $code  model $STARTLUX_MODEL  url $STARTLUX_URL"
 else
   health="$(curl -fsS -m 3 "http://127.0.0.1:$JEVOS_PORT/health" 2>/dev/null || true)"
   if [ -n "$health" ]; then

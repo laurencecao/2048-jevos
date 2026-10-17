@@ -15,6 +15,12 @@ const ENGINE_FALLBACK: {
 }[] = [
   { id: "jevos", label: "jevos", model: "jev-latest", transport: "cpu" },
   { id: "ollama", label: "ollama", model: "clef-flash:9b", transport: "gpu" },
+  {
+    id: "startlux",
+    label: "startlux",
+    model: "StartLux-Decision-v1.1-9B-Instant",
+    transport: "gpu",
+  },
 ];
 
 function pct(value: number): string {
