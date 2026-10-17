@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Start jevos + the 2048 web app. Idempotent: skips whatever is already healthy.
+set -eo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="${REPO_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+DATA_DIR="${JEVOS_DATA_DIR:-$REPO_DIR/.jevos}"
+[ -f "$DATA_DIR/deploy.env" ] && . "$DATA_DIR/deploy.env"
+WEB_PORT="${WEB_PORT:-3000}"
+JEVOS_PORT="${JEVOS_PORT:-8017}"
+THREADS="${JEVOS_THREADS:-4}"
+LOGS="$DATA_DIR/logs"; mkdir -p "$LOGS"
+
+log() { printf '\033[1;36m[start]\033[0m %s\n' "$*"; }
+healthy() { curl -fsS -m 2 "$1" >/dev/null 2>&1; }
+wait_healthy() { # url timeout_s
+  local url="$1" timeout="${2:-90}" i=0
+  while [ "$i" -lt "$((timeout * 2))" ]; do
+    healthy "$url" && return 0
+    sleep 0.5; i=$((i + 1))
+  done
+  return 1
+}
+
+if healthy "http://127.0.0.1:$JEVOS_PORT/health"; then
+  log "jevos already healthy on $JEVOS_PORT"
+else
+  [ -x "$DATA_DIR/jev/jev" ] || { echo "jevos not installed; run deploy/install.sh first" >&2; exit 1; }
+  log "starting jevos (threads=$THREADS port=$JEVOS_PORT)"
+  ( cd "$DATA_DIR/jev" && nohup ./jev serve --threads "$THREADS" --port "$JEVOS_PORT" \
+      > "$LOGS/jevos.log" 2>&1 < /dev/null & echo $! > "$DATA_DIR/jevos.pid" )
+  wait_healthy "http://127.0.0.1:$JEVOS_PORT/health" 180 \
+    || { echo "jevos failed to become healthy; last log:" >&2; tail -20 "$LOGS/jevos.log" >&2; exit 7; }
+  log "jevos ready"
+fi
+
+if healthy "http://127.0.0.1:$WEB_PORT/"; then
+  log "web already healthy on $WEB_PORT"
+else
+  [ -f "$REPO_DIR/.next/BUILD_ID" ] || { echo "web not built; run: npm run build" >&2; exit 1; }
+  log "starting web (port=$WEB_PORT)"
+  ( cd "$REPO_DIR" && JEVOS_URL="http://127.0.0.1:$JEVOS_PORT" nohup npx next start -p "$WEB_PORT" \
+      > "$LOGS/web.log" 2>&1 < /dev/null & echo $! > "$DATA_DIR/web.pid" )
+  wait_healthy "http://127.0.0.1:$WEB_PORT/" 90 \
+    || { echo "web failed to become healthy; last log:" >&2; tail -20 "$LOGS/web.log" >&2; exit 7; }
+fi
+
+log "ready: http://127.0.0.1:$WEB_PORT/  (jevos on :$JEVOS_PORT)"
