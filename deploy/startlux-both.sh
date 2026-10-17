@@ -29,7 +29,12 @@ fi
 DATA_DIR="${DATA_DIR:-$REPO_DIR/.jevos}"
 LOGS="$DATA_DIR/logs"; mkdir -p "$LOGS"
 
-SL_DIR="${STARTLUX_DIR:-$REPO_DIR/startlux}"
+if [ -z "${STARTLUX_DIR:-}" ]; then
+  # The repo may either vendor startlux/ or sit next to it (deploy layout).
+  if [ -d "$REPO_DIR/startlux" ]; then STARTLUX_DIR="$REPO_DIR/startlux"
+  else STARTLUX_DIR="$(cd "$REPO_DIR/.." && pwd)/startlux"; fi
+fi
+SL_DIR="$STARTLUX_DIR"
 GGUF9="${STARTLUX9B_GGUF:-$SL_DIR/StartLux-Decision-v1.1-9B-Instant-Q8_0.gguf}"
 GGUF27="${STARTLUX27B_GGUF:-$SL_DIR/StartLux-Decision-v1.1-27B-Instant-Q4_K_M.gguf}"
 LLAMA9="${STARTLUX9B_PORT:-8018}"
