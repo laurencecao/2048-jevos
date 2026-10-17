@@ -122,8 +122,12 @@ status() {
               "9B decision API:$API9:/health:startlux9b-api" \
               "27B llama-server:$LLAMA27:/health:startlux27b-llama" \
               "27B decision API:$API27:/health:startlux27b-api"; do
-    local label="${spec%%:*}" rest="${spec#*:}"
-    local port="${rest%%:*}" rest2="${rest#*:}" path="${rest2%%:*}" pidfile="${rest2##*:}"
+    # Split in separate statements: the RHS of a multi-assignment `local`
+    # is expanded before the assignments land, which shifted every row.
+    local label rest port rest2 path pidfile
+    label="${spec%%:*}"; rest="${spec#*:}"
+    port="${rest%%:*}"; rest2="${rest#*:}"
+    path="${rest2%%:*}"; pidfile="${rest2##*:}"
     url="http://127.0.0.1:$port$path"
     code="$(curl -s -o /dev/null -w '%{http_code}' -m 3 "$url" || true)"
     printf '  %-18s port %-5s http %-3s pid %s\n' "$label" "$port" "$code" \
