@@ -13,7 +13,7 @@
 #   --ollama-url URL      ollama base URL (default: http://127.0.0.1:11434)
 #   --ollama-model ID     ollama decision model (default: clef-flash:9b)
 #   --startlux-url URL    startlux-decide URL (default: http://127.0.0.1:8081)
-#   --startlux-model NAME model name reported by startlux (default: StartLux-Decision-v1.1-9B-Instant)
+#   --startlux-model NAME model name reported by startlux (default: StartLux-Decision-v1.1-9B-Instant; 27B Q4_K_M also supported)
 #   --assets-dir DIR    use already-downloaded release files from DIR
 #   --no-start          install only, do not start services
 #   --skip-npm          skip npm install + build (deps already present)

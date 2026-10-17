@@ -159,8 +159,8 @@ StartLux-Decision 与 ollama 的 clef 同类：`startlux-decide serve` 对外同
 | 模型         | GGUF（Q8_0 9.53 GB）+ **配套文件**：`config.json`、`decision_config.json`、`tokenizer*.json`、`vocab.json`、`merges.txt`、`chat_template.jinja`、`preprocessor_config.json` |
 | llama-server | 能加载该 GGUF；**Instant 模型是双向注意力** ⇒ `--parallel 1 --ctx-checkpoints 0 -b N -ub N`（N ≥ 最长 prompt）                                                              |
 | 环境变量     | `STARTLUX_LLAMACPP_BIDIR=server`（stock llama-server；patched server 才能用 `request`）                                                                                     |
-| 端口         | llama-server `8018`；startlux-decide `8081`（app 默认指向 8081）                                                                                                            |
-| 显存         | 9B Q8_0 约 9.5 GB，`-ngl 99` 可分摊到多卡                                                                                                                                   |
+| 端口         | llama-server `8018`；startlux-decide `8081`（app 默认指向 8081）。27B 示例：llama-server 占 `8081`、decision API 用 `8082`（`STARTLUX_URL` 要跟着改）                       |
+| 显存         | 9B Q8_0 约 9.5 GB；27B Q4_K_M 约 16 GB（4×A2 实测约 12 GB/卡）。`-ngl 99` 可分摊到多卡                                                                                      |
 
 **启动**
 
@@ -172,6 +172,27 @@ STARTLUX_LLAMACPP_BIDIR=server startlux-decide serve \
   --model <folder> --backend llamacpp --llamacpp-url http://127.0.0.1:8018 \
   --port 8081 --name StartLux-Decision-v1.1-9B-Instant
 ```
+
+**27B 变体（Q4_K_M）**：同一套 tokenizer / `decision_config.json` 文件夹直接可用，只换 GGUF、名字和端口。
+
+```bash
+# llama-server 占 8081，decision API 放 8082
+STARTLUX_GGUF=startlux/StartLux-Decision-v1.1-27B-Instant-Q4_K_M.gguf \
+  LLAMACPP_PORT=8081 bash deploy/startlux-llama.sh
+
+STARTLUX_LLAMACPP_URL=http://127.0.0.1:8081 STARTLUX_PORT=8082 \
+STARTLUX_MODEL=StartLux-Decision-v1.1-27B-Instant bash deploy/startlux-serve.sh
+```
+
+deploy.env 对应改成：
+
+```bash
+AI_PROVIDER="startlux"
+STARTLUX_URL="http://127.0.0.1:8082"
+STARTLUX_MODEL="StartLux-Decision-v1.1-27B-Instant"
+```
+
+实测（10.0.2.160，4×A2）：27B Q4_K_M 一次 hinted 决策（4 候选）约 3.8 s；9B 与 27B 不能同时常驻。
 
 **切换**
 
@@ -188,6 +209,7 @@ bash deploy/switch-provider.sh startlux
 - 不需要 torch：只用 tokenizer，`[transformers] PyTorch was not found` 可忽略。
 - 没装成 CLI 时可直接跑源码：`PYTHONPATH=<target>:<repo> python3 -m startlux_decide.cli serve ...`；
   仓库的 `deploy/startlux-serve.sh` 已封装（读 `STARTLUX_MODEL_DIR` / `STARTLUX_LLAMACPP_URL` / `STARTLUX_PORT`）。
+- llama-server 一侧由 `deploy/startlux-llama.sh` 起（读 `STARTLUX_GGUF` / `LLAMACPP_BIN` / `LLAMACPP_PORT` / `STARTLUX_CTX`，可选 `STARTLUX_MMPROJ`）。
 - GPU：startlux（约 9.5 GB）与 ollama clef（约 12.9 GB）在 4×A2 上**不能同时常驻**；切回 ollama 前先停 llama-server。
 
 **验收**
@@ -205,7 +227,7 @@ curl -s 'http://127.0.0.1:3000/api/jevos/health?provider=startlux'
 1. **只有 GGUF 不够**：`decision_config.json` 里的字母 token id、温度、双向注意力开关缺一不可；缺文件时 serve 会直接报错。
 2. **不要用 llama-server 的 `/v1/chat/completions` 顶替**：普通 chat 不产出选项字母概率，结果不可用。
 3. **Instant 必须整段一次读**：`--parallel 1`、`--ctx-checkpoints 0`、`-b/-ub` 不小于 prompt；否则概率会和 BF16 有偏差。
-4. **服务是两段**：8018 是 llama-server（原始 API，没有 `/v1/systemone`），8081 才是 decision API；app 连 8081。
+4. **服务是两段**：llama-server 只提供原始 API（没有 `/v1/systemone`），decision API 才有；app 连 decision API。默认 8018/8081，27B 示例是 8081/8082。
 5. **与 ollama 争显存**：两个 GPU 引擎都接近单卡容量上限，实测只能留一个；切换前先停掉另一个。
 
 ---
@@ -266,6 +288,7 @@ bash deploy/install.sh --assets-dir /path/to/assets
 │   ├── start.sh        # 幂等启动（按 AI_PROVIDER 决定起 jevos 还是只用 ollama）
 │   ├── stop.sh         # 按 pidfile 停；ss 可用时按端口回收
 │   ├── status.sh       # 一屏健康报告（含引擎与 ollama/startlux 连通性）
+│   ├── startlux-llama.sh  # 起 llama-server（9B/27B GGUF，默认 8018）
 │   ├── startlux-serve.sh  # 在 8081 起 StartLux decision API（llama-server 在 8018）
 │   └── switch-provider.sh  # 改 deploy.env 的 AI_PROVIDER 并重启
 ├── docs/DEPLOY.md      # 本文

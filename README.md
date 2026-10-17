@@ -48,11 +48,11 @@ npm run dev:all                 # 起 jevos（.jevos/jev 或 JEVOS_DIR）+ next 
 
 ## 推理引擎：jevos、ollama 与 StartLux（可在配置中切换）
 
-| 引擎            | 传输                | 默认地址                 | 默认模型                            | 适用                         |
-| --------------- | ------------------- | ------------------------ | ----------------------------------- | ---------------------------- |
-| `jevos`（默认） | CPU · OpenVINO int8 | `http://127.0.0.1:8017`  | `jev-latest`（实际 `jevos-v5`）     | 单机无 GPU，零依赖           |
-| `ollama`        | GPU（有卡时）       | `http://127.0.0.1:11434` | `clef-flash:9b`                     | 已有 ollama / GPU 空闲的机器 |
-| `startlux`      | GPU · llama.cpp     | `http://127.0.0.1:8081`  | `StartLux-Decision-v1.1-9B-Instant` | 有 GGUF + 想换一个决策模型   |
+| 引擎            | 传输                | 默认地址                 | 默认模型                                               | 适用                         |
+| --------------- | ------------------- | ------------------------ | ------------------------------------------------------ | ---------------------------- |
+| `jevos`（默认） | CPU · OpenVINO int8 | `http://127.0.0.1:8017`  | `jev-latest`（实际 `jevos-v5`）                        | 单机无 GPU，零依赖           |
+| `ollama`        | GPU（有卡时）       | `http://127.0.0.1:11434` | `clef-flash:9b`                                        | 已有 ollama / GPU 空闲的机器 |
+| `startlux`      | GPU · llama.cpp     | `http://127.0.0.1:8081`  | `StartLux-Decision-v1.1-9B-Instant`（可换 27B Q4_K_M） | 有 GGUF + 想换一个决策模型   |
 
 ollama ≥ 0.40 为 decision 模型（如 `clef-flash:9b`）提供 **`/v1/systemone`**，StartLux-Decision 的
 `startlux-decide serve` 也提供同一协议；请求与响应和 jevos 逐字段一致：
@@ -118,6 +118,28 @@ STARTLUX_LLAMACPP_BIDIR=server startlux-decide serve \
   --model <folder> --backend llamacpp --llamacpp-url http://127.0.0.1:8018 \
   --port 8081 --name StartLux-Decision-v1.1-9B-Instant
 ```
+
+**27B 变体（Q4_K_M，16 GB）**：同一套 tokenizer / `decision_config.json` 文件夹可直接用，只换 GGUF、
+名字和端口。4×A2 实测 27B 约占 12 GB/卡、`-c 20480` 可跑；一次 hinted 决策（4 候选）约 3.8 s。
+
+```bash
+# llama-server 占 8081，decision API 放 8082（app 的 STARTLUX_URL 要跟着改）
+STARTLUX_GGUF=startlux/StartLux-Decision-v1.1-27B-Instant-Q4_K_M.gguf \
+  LLAMACPP_PORT=8081 bash deploy/startlux-llama.sh
+
+STARTLUX_LLAMACPP_URL=http://127.0.0.1:8081 STARTLUX_PORT=8082 \
+STARTLUX_MODEL=StartLux-Decision-v1.1-27B-Instant bash deploy/startlux-serve.sh
+```
+
+对应配置：
+
+```bash
+AI_PROVIDER=startlux
+STARTLUX_URL=http://127.0.0.1:8082
+STARTLUX_MODEL=StartLux-Decision-v1.1-27B-Instant
+```
+
+9B 与 27B 共用同一个 llama-server 端口，**同一时刻只能跑一个**；换模型 = 换 GGUF 重启。
 
 - **模型文件夹不止 GGUF**：还需要 `config.json`、`decision_config.json`、`tokenizer.json`、
   `tokenizer_config.json`、`vocab.json`、`merges.txt`、`chat_template.jinja`、`preprocessor_config.json`
