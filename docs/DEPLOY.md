@@ -59,20 +59,22 @@ bash deploy/install.sh
 5. 写 `<data>/deploy.env`（端口、线程数、仓库路径）；
 6. 调 `deploy/start.sh`：起 jevos（等健康）→ 起 Web（等 200）。
 
-| 选项                    | 默认                                | 说明                                                               |
-| ----------------------- | ----------------------------------- | ------------------------------------------------------------------ |
-| `--data-dir DIR`        | `<repo>/.jevos`                     | jevos 运行时目录（二进制、模型、日志、pid）                        |
-| `--port P`              | `3000`                              | Web 端口                                                           |
-| `--jevos-port P`        | `8017`                              | jevos 端口                                                         |
-| `--threads N`           | `4`                                 | jevos CPU 线程数                                                   |
-| `--provider NAME`       | `jevos`                             | 默认引擎：`jevos` / `ollama` / `startlux`（后两者跳过 jevos 资产） |
-| `--ollama-url URL`      | `http://127.0.0.1:11434`            | ollama 地址                                                        |
-| `--ollama-model ID`     | `clef-flash:9b`                     | ollama decision 模型                                               |
-| `--startlux-url URL`    | `http://127.0.0.1:8081`             | startlux-decide 地址                                               |
-| `--startlux-model NAME` | `StartLux-Decision-v1.1-9B-Instant` | startlux 健康检查里报告的名字                                      |
-| `--assets-dir DIR`      | —                                   | 用已下载好的发布包，完全离线安装                                   |
-| `--no-start`            | —                                   | 只安装，不启动                                                     |
-| `--skip-npm`            | —                                   | 跳过 `npm ci`/`build`（依赖已就位）                                |
+| 选项                      | 默认                                 | 说明                                                                                            |
+| ------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `--data-dir DIR`          | `<repo>/.jevos`                      | jevos 运行时目录（二进制、模型、日志、pid）                                                     |
+| `--port P`                | `3000`                               | Web 端口                                                                                        |
+| `--jevos-port P`          | `8017`                               | jevos 端口                                                                                      |
+| `--threads N`             | `4`                                  | jevos CPU 线程数                                                                                |
+| `--provider NAME`         | `jevos`                              | 默认引擎：`jevos` / `ollama` / `startlux`（9B）/ `startlux27b`（27B）；非 jevos 跳过 jevos 资产 |
+| `--ollama-url URL`        | `http://127.0.0.1:11434`             | ollama 地址                                                                                     |
+| `--ollama-model ID`       | `clef-flash:9b`                      | ollama decision 模型                                                                            |
+| `--startlux-url URL`      | `http://127.0.0.1:8081`              | 9B startlux-decide 地址                                                                         |
+| `--startlux-model NAME`   | `StartLux-Decision-v1.1-9B-Instant`  | 9B 健康检查里报告的名字                                                                         |
+| `--startlux27-url URL`    | `http://127.0.0.1:8082`              | 27B startlux-decide 地址                                                                        |
+| `--startlux27-model NAME` | `StartLux-Decision-v1.1-27B-Instant` | 27B 健康检查里报告的名字                                                                        |
+| `--assets-dir DIR`        | —                                    | 用已下载好的发布包，完全离线安装                                                                |
+| `--no-start`              | —                                    | 只安装，不启动                                                                                  |
+| `--skip-npm`              | —                                    | 跳过 `npm ci`/`build`（依赖已就位）                                                             |
 
 **游戏与 jevos 放在同一个父目录**（本机实际采用的布局）：
 
@@ -159,8 +161,8 @@ StartLux-Decision 与 ollama 的 clef 同类：`startlux-decide serve` 对外同
 | 模型         | GGUF（Q8_0 9.53 GB）+ **配套文件**：`config.json`、`decision_config.json`、`tokenizer*.json`、`vocab.json`、`merges.txt`、`chat_template.jinja`、`preprocessor_config.json` |
 | llama-server | 能加载该 GGUF；**Instant 模型是双向注意力** ⇒ `--parallel 1 --ctx-checkpoints 0 -b N -ub N`（N ≥ 最长 prompt）                                                              |
 | 环境变量     | `STARTLUX_LLAMACPP_BIDIR=server`（stock llama-server；patched server 才能用 `request`）                                                                                     |
-| 端口         | llama-server `8018`；startlux-decide `8081`（app 默认指向 8081）。27B 示例：llama-server 占 `8081`、decision API 用 `8082`（`STARTLUX_URL` 要跟着改）                       |
-| 显存         | 9B Q8_0 约 9.5 GB；27B Q4_K_M 约 16 GB（4×A2 实测约 12 GB/卡）。`-ngl 99` 可分摊到多卡                                                                                      |
+| 端口         | 两套并行：9B llama-server `8018` → decision API `8081`（`STARTLUX_URL`）；27B llama-server `8019` → decision API `8082`（`STARTLUX27_URL`）                                 |
+| 显存         | 9B Q8_0 9.5 GB + 27B Q4_K_M 16.5 GB = 26 GB 权重，4×A2 共 61 GB，可同时常驻。`-ngl 99` 分摊到多卡                                                                           |
 
 **启动**
 
@@ -173,32 +175,43 @@ STARTLUX_LLAMACPP_BIDIR=server startlux-decide serve \
   --port 8081 --name StartLux-Decision-v1.1-9B-Instant
 ```
 
-**27B 变体（Q4_K_M）**：同一套 tokenizer / `decision_config.json` 文件夹直接可用，只换 GGUF、名字和端口。
+**9B + 27B 同时常驻（两种都要）**：一条命令起两个 llama-server 和两个 decision API，页面下拉里同时
+出现 `startlux` 与 `startlux-27b`：
 
 ```bash
-# llama-server 占 8081，decision API 放 8082
-STARTLUX_GGUF=startlux/StartLux-Decision-v1.1-27B-Instant-Q4_K_M.gguf \
-  LLAMACPP_PORT=8081 bash deploy/startlux-llama.sh
-
-STARTLUX_LLAMACPP_URL=http://127.0.0.1:8081 STARTLUX_PORT=8082 \
-STARTLUX_MODEL=StartLux-Decision-v1.1-27B-Instant bash deploy/startlux-serve.sh
+bash deploy/startlux-both.sh start     # 幂等：已健康的端口会跳过
+bash deploy/startlux-both.sh status    # 四个端口的 http/pid
+bash deploy/startlux-both.sh stop
 ```
 
-deploy.env 对应改成：
+deploy.env：
 
 ```bash
-AI_PROVIDER="startlux"
-STARTLUX_URL="http://127.0.0.1:8082"
-STARTLUX_MODEL="StartLux-Decision-v1.1-27B-Instant"
+AI_PROVIDER="startlux"                        # 默认 9B；切 27B 见下
+STARTLUX_URL="http://127.0.0.1:8081"
+STARTLUX_MODEL="StartLux-Decision-v1.1-9B-Instant"
+STARTLUX27_URL="http://127.0.0.1:8082"
+STARTLUX27_MODEL="StartLux-Decision-v1.1-27B-Instant"
 ```
 
-实测（10.0.2.160，4×A2）：27B Q4_K_M 一次 hinted 决策（4 候选）约 3.8 s；9B 与 27B 不能同时常驻。
+```bash
+bash deploy/switch-provider.sh startlux27b    # 默认引擎切到 27B（两个模型仍都在跑）
+```
+
+**显存为什么能同时放下**：`-b/-ub` 决定 logits 缓冲（`vocab × batch × 4 B`）。原来 `-ub 16384`
+为单个模型就预留约 10 GB，27B 一台占用 ~48 GB；现在默认 `-c 4096 -b 2048 -ub 2048`，两个模型
+合计约 30 GB。注意 **`-ub` 不能小于 prompt**：Instant 是双向注意力，prompt 被切块会改变概率；
+决策 prompt 约 700 token，2048 足够，不要往下调。
+
+实测（10.0.2.160，4×A2）：9B 一次 hinted 决策（4 候选）约 0.8–1.2 s；27B 约 3.8 s。
+冷启动 27B 需把 16.5 GB 读进显存（1–2 min），期间 llama-server `/health` 为 `503 Loading model`。
 
 **切换**
 
 ```bash
-bash deploy/switch-provider.sh startlux
-# 或写 deploy.env：AI_PROVIDER="startlux" / STARTLUX_URL / STARTLUX_MODEL
+bash deploy/switch-provider.sh startlux       # 9B
+bash deploy/switch-provider.sh startlux27b    # 27B
+# 或写 deploy.env：AI_PROVIDER / STARTLUX_URL / STARTLUX27_URL ...
 ```
 
 **安装要点（实测于 10.0.2.160）**
@@ -210,7 +223,8 @@ bash deploy/switch-provider.sh startlux
 - 没装成 CLI 时可直接跑源码：`PYTHONPATH=<target>:<repo> python3 -m startlux_decide.cli serve ...`；
   仓库的 `deploy/startlux-serve.sh` 已封装（读 `STARTLUX_MODEL_DIR` / `STARTLUX_LLAMACPP_URL` / `STARTLUX_PORT`）。
 - llama-server 一侧由 `deploy/startlux-llama.sh` 起（读 `STARTLUX_GGUF` / `LLAMACPP_BIN` / `LLAMACPP_PORT` / `STARTLUX_CTX`，可选 `STARTLUX_MMPROJ`）。
-- GPU：startlux（约 9.5 GB）与 ollama clef（约 12.9 GB）在 4×A2 上**不能同时常驻**；切回 ollama 前先停 llama-server。
+- GPU：9B 与 27B 两个 StartLux 可以在 4×A2 上**同时常驻**（见上文显存说明）；但与 ollama clef（约 12.9 GB）合计
+  会超出余量，切回 ollama 前先 `bash deploy/startlux-both.sh stop`。
 
 **验收**
 
@@ -227,8 +241,9 @@ curl -s 'http://127.0.0.1:3000/api/jevos/health?provider=startlux'
 1. **只有 GGUF 不够**：`decision_config.json` 里的字母 token id、温度、双向注意力开关缺一不可；缺文件时 serve 会直接报错。
 2. **不要用 llama-server 的 `/v1/chat/completions` 顶替**：普通 chat 不产出选项字母概率，结果不可用。
 3. **Instant 必须整段一次读**：`--parallel 1`、`--ctx-checkpoints 0`、`-b/-ub` 不小于 prompt；否则概率会和 BF16 有偏差。
-4. **服务是两段**：llama-server 只提供原始 API（没有 `/v1/systemone`），decision API 才有；app 连 decision API。默认 8018/8081，27B 示例是 8081/8082。
-5. **与 ollama 争显存**：两个 GPU 引擎都接近单卡容量上限，实测只能留一个；切换前先停掉另一个。
+4. **服务是两段**：llama-server 只提供原始 API（没有 `/v1/systemone`），decision API 才有；app 连 decision API。
+   两套并行时为 8018→8081（9B）与 8019→8082（27B）。
+5. **与 ollama 争显存**：9B+27B 可共存，再加上 ollama clef 会超出 4×A2 的余量；切换前先停另一个。
 
 ---
 
@@ -289,7 +304,8 @@ bash deploy/install.sh --assets-dir /path/to/assets
 │   ├── stop.sh         # 按 pidfile 停；ss 可用时按端口回收
 │   ├── status.sh       # 一屏健康报告（含引擎与 ollama/startlux 连通性）
 │   ├── startlux-llama.sh  # 起 llama-server（9B/27B GGUF，默认 8018）
-│   ├── startlux-serve.sh  # 在 8081 起 StartLux decision API（llama-server 在 8018）
+│   ├── startlux-serve.sh  # 起 StartLux decision API（默认 8081，llama-server 在 8018）
+│   ├── startlux-both.sh   # 9B(8018→8081) + 27B(8019→8082) 同时常驻
 │   └── switch-provider.sh  # 改 deploy.env 的 AI_PROVIDER 并重启
 ├── docs/DEPLOY.md      # 本文
 ├── pages/api/jevos/    # 同源代理：/move、/health（支持 ?provider=）

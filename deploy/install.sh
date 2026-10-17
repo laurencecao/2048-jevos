@@ -9,11 +9,13 @@
 #   --port PORT         web port (default: 3000)
 #   --jevos-port PORT   jevos port (default: 8017)
 #   --threads N         jevos CPU threads (default: 4)
-#   --provider NAME       default engine: jevos | ollama | startlux (default: jevos)
+#   --provider NAME       default engine: jevos | ollama | startlux | startlux27b (default: jevos)
 #   --ollama-url URL      ollama base URL (default: http://127.0.0.1:11434)
 #   --ollama-model ID     ollama decision model (default: clef-flash:9b)
-#   --startlux-url URL    startlux-decide URL (default: http://127.0.0.1:8081)
-#   --startlux-model NAME model name reported by startlux (default: StartLux-Decision-v1.1-9B-Instant; 27B Q4_K_M also supported)
+#   --startlux-url URL    startlux-decide URL, 9B (default: http://127.0.0.1:8081)
+#   --startlux-model NAME model name reported by startlux (default: StartLux-Decision-v1.1-9B-Instant)
+#   --startlux27-url URL   startlux-decide URL, 27B (default: http://127.0.0.1:8082)
+#   --startlux27-model NAME model name for the 27B build (default: StartLux-Decision-v1.1-27B-Instant)
 #   --assets-dir DIR    use already-downloaded release files from DIR
 #   --no-start          install only, do not start services
 #   --skip-npm          skip npm install + build (deps already present)
@@ -36,6 +38,8 @@ OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-clef-flash:9b}"
 STARTLUX_URL="${STARTLUX_URL:-http://127.0.0.1:8081}"
 STARTLUX_MODEL="${STARTLUX_MODEL:-StartLux-Decision-v1.1-9B-Instant}"
+STARTLUX27_URL="${STARTLUX27_URL:-http://127.0.0.1:8082}"
+STARTLUX27_MODEL="${STARTLUX27_MODEL:-StartLux-Decision-v1.1-27B-Instant}"
 ASSETS_DIR=""
 DO_START=1
 SKIP_NPM=0
@@ -57,6 +61,8 @@ while [ $# -gt 0 ]; do
     --ollama-model) OLLAMA_MODEL="$2"; shift 2 ;;
     --startlux-url) STARTLUX_URL="$2"; shift 2 ;;
     --startlux-model) STARTLUX_MODEL="$2"; shift 2 ;;
+    --startlux27-url) STARTLUX27_URL="$2"; shift 2 ;;
+    --startlux27-model) STARTLUX27_MODEL="$2"; shift 2 ;;
     --assets-dir) ASSETS_DIR="$2"; shift 2 ;;
     --no-start)   DO_START=0; shift ;;
     --skip-npm)   SKIP_NPM=1; shift ;;
@@ -66,8 +72,8 @@ while [ $# -gt 0 ]; do
 done
 
 case "$AI_PROVIDER" in
-  jevos|ollama|startlux) ;;
-  *) echo "unknown provider: $AI_PROVIDER (use jevos, ollama or startlux)" >&2; exit 2 ;;
+  jevos|ollama|startlux|startlux27b) ;;
+  *) echo "unknown provider: $AI_PROVIDER (use jevos, ollama, startlux or startlux27b)" >&2; exit 2 ;;
 esac
 
 # stdout is reserved for machine-readable paths; all progress goes to stderr
@@ -139,7 +145,7 @@ ensure_asset() { # name sha -> echoes verified path
 # ---------- 3. binary + model -------------------------------------------------
 JEVDIR="$DATA_DIR/jev"
 mkdir -p "$DATA_DIR"
-if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "startlux" ]; then
+if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ]; then
   log "provider=$AI_PROVIDER: skipping jevos assets (re-run with --provider jevos to install them)"
 elif [ -x "$JEVDIR/jev" ] && [ -f "$JEVDIR/model/model.json" ] && [ -f "$JEVDIR/model/openvino_model.bin" ]; then
   log "jevos binary and model already installed, skipping"
@@ -187,6 +193,8 @@ OLLAMA_URL="$OLLAMA_URL"
 OLLAMA_MODEL="$OLLAMA_MODEL"
 STARTLUX_URL="$STARTLUX_URL"
 STARTLUX_MODEL="$STARTLUX_MODEL"
+STARTLUX27_URL="$STARTLUX27_URL"
+STARTLUX27_MODEL="$STARTLUX27_MODEL"
 EOF
 chmod 644 "$DATA_DIR/deploy.env"
 # remember the data dir so start/stop/status work without env vars
@@ -199,8 +207,10 @@ fi
 if [ "$AI_PROVIDER" = "ollama" ]; then
   log "ollama: $OLLAMA_URL model=$OLLAMA_MODEL"
 fi
-if [ "$AI_PROVIDER" = "startlux" ]; then
-  log "startlux: $STARTLUX_URL model=$STARTLUX_MODEL (run startlux-decide separately)"
+if [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ]; then
+  log "startlux:    $STARTLUX_URL model=$STARTLUX_MODEL"
+  log "startlux27b: $STARTLUX27_URL model=$STARTLUX27_MODEL"
+  log "start both with: bash deploy/startlux-both.sh start"
 fi
 
 if [ "$DO_START" = 1 ]; then

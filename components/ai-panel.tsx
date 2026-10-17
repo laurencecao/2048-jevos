@@ -21,6 +21,12 @@ const ENGINE_FALLBACK: {
     model: "StartLux-Decision-v1.1-9B-Instant",
     transport: "gpu",
   },
+  {
+    id: "startlux27b",
+    label: "startlux-27b",
+    model: "StartLux-Decision-v1.1-27B-Instant",
+    transport: "gpu",
+  },
 ];
 
 function pct(value: number): string {

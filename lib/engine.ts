@@ -12,7 +12,7 @@
  * id - the prompts stay untouched.
  */
 
-export type ProviderId = "jevos" | "ollama" | "startlux";
+export type ProviderId = "jevos" | "ollama" | "startlux" | "startlux27b";
 
 export type EngineConfig = {
   id: ProviderId;
@@ -43,7 +43,12 @@ export type SystemOneResponse = {
   usage?: { input_tokens?: number; output_tokens?: number };
 };
 
-export const PROVIDERS: ProviderId[] = ["jevos", "ollama", "startlux"];
+export const PROVIDERS: ProviderId[] = [
+  "jevos",
+  "ollama",
+  "startlux",
+  "startlux27b",
+];
 
 const DEFAULTS = {
   jevos: {
@@ -69,12 +74,22 @@ const DEFAULTS = {
     transport: "gpu" as const,
     hint: "Start the StartLux server: startlux-decide serve --model <folder> --backend llamacpp --llamacpp-url http://127.0.0.1:8018 --port 8081",
   },
+  startlux27b: {
+    // The 27B build runs side by side with the 9B one: llama-server on 8019,
+    // decision API on 8082. Both stay resident (deploy/startlux-both.sh).
+    url: "http://127.0.0.1:8082",
+    model: "StartLux-Decision-v1.1-27B-Instant",
+    label: "startlux-27b",
+    transport: "gpu" as const,
+    hint: "Start both models: bash deploy/startlux-both.sh (27B decision API on 8082)",
+  },
 };
 
 const ENV_KEYS: Record<ProviderId, { url: string; model: string }> = {
   jevos: { url: "JEVOS_URL", model: "JEVOS_MODEL" },
   ollama: { url: "OLLAMA_URL", model: "OLLAMA_MODEL" },
   startlux: { url: "STARTLUX_URL", model: "STARTLUX_MODEL" },
+  startlux27b: { url: "STARTLUX27_URL", model: "STARTLUX27_MODEL" },
 };
 
 function env(name: string): string | undefined {
@@ -83,7 +98,12 @@ function env(name: string): string | undefined {
 }
 
 export function isProviderId(value: unknown): value is ProviderId {
-  return value === "jevos" || value === "ollama" || value === "startlux";
+  return (
+    value === "jevos" ||
+    value === "ollama" ||
+    value === "startlux" ||
+    value === "startlux27b"
+  );
 }
 
 /** AI_PROVIDER picks the server-side default; anything unknown means jevos. */
@@ -158,7 +178,7 @@ export async function engineHealth(provider?: unknown): Promise<EngineHealth> {
       };
     }
 
-    if (engine.id === "startlux") {
+    if (engine.id === "startlux" || engine.id === "startlux27b") {
       // startlux-decide answers GET /health with {"status":"ok","model":...}.
       const response = await fetch(engine.endpoint + "/health", {
         cache: "no-store",
@@ -269,7 +289,11 @@ export async function askEngine(
   // Instant prompt in one llama.cpp pass; the first request may still wait
   // for a cold page cache.
   const timeoutMs =
-    engine.id === "ollama" ? 180000 : engine.id === "startlux" ? 120000 : 30000;
+    engine.id === "ollama"
+      ? 180000
+      : engine.id === "startlux" || engine.id === "startlux27b"
+        ? 120000
+        : 30000;
 
   let response: Response;
   try {

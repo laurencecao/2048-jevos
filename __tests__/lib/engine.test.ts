@@ -13,6 +13,8 @@ const KEYS = [
   "OLLAMA_MODEL",
   "STARTLUX_URL",
   "STARTLUX_MODEL",
+  "STARTLUX27_URL",
+  "STARTLUX27_MODEL",
 ] as const;
 
 const saved: Record<string, string | undefined> = {};
@@ -32,10 +34,11 @@ afterEach(() => {
 });
 
 describe("provider resolution", () => {
-  it("accepts only the three supported engines", () => {
+  it("accepts only the four supported engines", () => {
     expect(isProviderId("jevos")).toBe(true);
     expect(isProviderId("ollama")).toBe(true);
     expect(isProviderId("startlux")).toBe(true);
+    expect(isProviderId("startlux27b")).toBe(true);
     expect(isProviderId("openai")).toBe(false);
     expect(isProviderId(undefined)).toBe(false);
   });
@@ -69,6 +72,22 @@ describe("provider resolution", () => {
     expect(engine.transport).toBe("gpu");
   });
 
+  it("keeps the 27B build available next to the 9B one on 8082", () => {
+    const engine = resolveEngine("startlux27b");
+    expect(engine.endpoint).toBe("http://127.0.0.1:8082");
+    expect(engine.model).toBe("StartLux-Decision-v1.1-27B-Instant");
+    expect(engine.transport).toBe("gpu");
+
+    process.env.STARTLUX27_URL = "http://10.0.2.160:8082";
+    process.env.STARTLUX27_MODEL = "StartLux-Decision-v1.1-27B-Instant-Q4_K_M";
+    const custom = resolveEngine("startlux27b");
+    expect(custom.endpoint).toBe("http://10.0.2.160:8082");
+    expect(custom.model).toBe("StartLux-Decision-v1.1-27B-Instant-Q4_K_M");
+
+    // The 9B engine must not pick up the 27B overrides.
+    expect(resolveEngine("startlux").endpoint).toBe("http://127.0.0.1:8081");
+  });
+
   it("honours STARTLUX_URL and STARTLUX_MODEL", () => {
     process.env.STARTLUX_URL = "http://10.0.2.160:8081/";
     process.env.STARTLUX_MODEL = "startlux-decision-9b";
@@ -91,12 +110,13 @@ describe("provider resolution", () => {
     expect(resolveEngine(undefined).id).toBe("ollama");
   });
 
-  it("lists all three engines", () => {
+  it("lists all four engines", () => {
     const engines = engineList();
     expect(engines.map((engine) => engine.id)).toEqual([
       "jevos",
       "ollama",
       "startlux",
+      "startlux27b",
     ]);
   });
 });

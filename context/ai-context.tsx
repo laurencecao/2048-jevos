@@ -22,7 +22,7 @@ export type AiMode = "pure" | "hinted" | "assisted";
 
 /** Mirrors lib/engine.ts; kept local so the client bundle never imports the
  * server-side fetch helpers. */
-export type EngineProvider = "jevos" | "ollama" | "startlux";
+export type EngineProvider = "jevos" | "ollama" | "startlux" | "startlux27b";
 
 export type EngineInfo = {
   id: EngineProvider;
@@ -217,7 +217,8 @@ export default function AiProvider({ children }: PropsWithChildren) {
       if (
         json.provider === "jevos" ||
         json.provider === "ollama" ||
-        json.provider === "startlux"
+        json.provider === "startlux" ||
+        json.provider === "startlux27b"
       ) {
         setProviderState((current) => current ?? json.provider ?? null);
       }
