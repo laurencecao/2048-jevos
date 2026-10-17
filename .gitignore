@@ -30,6 +30,8 @@ yarn-error.log*
 
 # jevos runtime (binary + 679 MB model + logs + pids)
 /.jevos/
+# data-dir pointer written by deploy/install.sh
+/.jevos-path
 
 # vercel
 .vercel
