@@ -61,7 +61,7 @@ status() {
   echo "ports:     $(field '{{json .NetworkSettings.Ports}}')"
   echo "env:"
   docker inspect "$CONTAINER" --format '{{range .Config.Env}}{{println .}}{{end}}' \
-    | grep -E '^OLLAMA_' | sed 's/^/  /' || echo "  (no OLLAMA_* env — that is why 27B falls back to one card)"
+    | grep -E '^OLLAMA_' | sed 's/^/  /' || echo "  (no OLLAMA_* env — ollama defaults: one card per model, default concurrency)"
   echo "gpu:"
   if command -v nvidia-smi >/dev/null 2>&1; then
     nvidia-smi --query-gpu=index,memory.used,memory.total --format=csv,noheader \
@@ -76,7 +76,11 @@ status() {
 }
 
 pulling() {
-  docker top "$CONTAINER" -eo args 2>/dev/null | grep -q 'ollama pull'
+  # "docker top ... -eo args" is not portable: plain "docker top" already
+  # prints the full command line in its CMD column. The host process table is
+  # a second net for setups where the pull runs outside the container.
+  { docker top "$CONTAINER" 2>/dev/null; ps -eo args 2>/dev/null; } \
+    | grep -q 'ollama pull'
 }
 
 apply() {
