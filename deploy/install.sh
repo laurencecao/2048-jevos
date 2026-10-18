@@ -9,9 +9,11 @@
 #   --port PORT         web port (default: 3000)
 #   --jevos-port PORT   jevos port (default: 8017)
 #   --threads N         jevos CPU threads (default: 4)
-#   --provider NAME       default engine: jevos | ollama | startlux | startlux27b (default: jevos)
+#   --provider NAME       default engine: jevos | ollama | ollama27b | startlux | startlux27b (default: jevos)
 #   --ollama-url URL      ollama base URL (default: http://127.0.0.1:11434)
-#   --ollama-model ID     ollama decision model (default: clef-flash:9b)
+#   --ollama-model ID     ollama 9B decision model (default: clef-flash:9b)
+#   --ollama27-url URL    ollama base URL for the 27B engine (default: http://127.0.0.1:11434)
+#   --ollama27-model ID   ollama 27B decision model (default: clef:27b)
 #   --startlux-url URL    startlux-decide URL, 9B (default: http://127.0.0.1:8081)
 #   --startlux-model NAME model name reported by startlux (default: StartLux-Decision-v1.1-9B-Instant)
 #   --startlux27-url URL   startlux-decide URL, 27B (default: http://127.0.0.1:8082)
@@ -36,6 +38,8 @@ THREADS="${JEVOS_THREADS:-4}"
 AI_PROVIDER="${AI_PROVIDER:-jevos}"
 OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-clef-flash:9b}"
+OLLAMA27_URL="${OLLAMA27_URL:-http://127.0.0.1:11434}"
+OLLAMA27_MODEL="${OLLAMA27_MODEL:-clef:27b}"
 STARTLUX_URL="${STARTLUX_URL:-http://127.0.0.1:8081}"
 STARTLUX_MODEL="${STARTLUX_MODEL:-StartLux-Decision-v1.1-9B-Instant}"
 STARTLUX27_URL="${STARTLUX27_URL:-http://127.0.0.1:8082}"
@@ -48,7 +52,7 @@ RELEASE_BASE="${JEVOS_ASSET_BASE:-https://github.com/feder-cr/jev/releases/downl
 MODEL_ASSET="jevos-v5-openvino-int8.zip"
 MODEL_SHA="0a1159c31b9c2abc484af9c866cdcfe5279fdf592b368636625c5a795f970acc"
 
-usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -59,6 +63,8 @@ while [ $# -gt 0 ]; do
     --provider)   AI_PROVIDER="$2"; shift 2 ;;
     --ollama-url) OLLAMA_URL="$2"; shift 2 ;;
     --ollama-model) OLLAMA_MODEL="$2"; shift 2 ;;
+    --ollama27-url) OLLAMA27_URL="$2"; shift 2 ;;
+    --ollama27-model) OLLAMA27_MODEL="$2"; shift 2 ;;
     --startlux-url) STARTLUX_URL="$2"; shift 2 ;;
     --startlux-model) STARTLUX_MODEL="$2"; shift 2 ;;
     --startlux27-url) STARTLUX27_URL="$2"; shift 2 ;;
@@ -72,8 +78,8 @@ while [ $# -gt 0 ]; do
 done
 
 case "$AI_PROVIDER" in
-  jevos|ollama|startlux|startlux27b) ;;
-  *) echo "unknown provider: $AI_PROVIDER (use jevos, ollama, startlux or startlux27b)" >&2; exit 2 ;;
+  jevos|ollama|ollama27b|startlux|startlux27b) ;;
+  *) echo "unknown provider: $AI_PROVIDER (use jevos, ollama, ollama27b, startlux or startlux27b)" >&2; exit 2 ;;
 esac
 
 # stdout is reserved for machine-readable paths; all progress goes to stderr
@@ -145,7 +151,7 @@ ensure_asset() { # name sha -> echoes verified path
 # ---------- 3. binary + model -------------------------------------------------
 JEVDIR="$DATA_DIR/jev"
 mkdir -p "$DATA_DIR"
-if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ]; then
+if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "ollama27b" ] || [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ]; then
   log "provider=$AI_PROVIDER: skipping jevos assets (re-run with --provider jevos to install them)"
 elif [ -x "$JEVDIR/jev" ] && [ -f "$JEVDIR/model/model.json" ] && [ -f "$JEVDIR/model/openvino_model.bin" ]; then
   log "jevos binary and model already installed, skipping"
@@ -191,6 +197,8 @@ JEVOS_THREADS="$THREADS"
 AI_PROVIDER="$AI_PROVIDER"
 OLLAMA_URL="$OLLAMA_URL"
 OLLAMA_MODEL="$OLLAMA_MODEL"
+OLLAMA27_URL="$OLLAMA27_URL"
+OLLAMA27_MODEL="$OLLAMA27_MODEL"
 STARTLUX_URL="$STARTLUX_URL"
 STARTLUX_MODEL="$STARTLUX_MODEL"
 STARTLUX27_URL="$STARTLUX27_URL"
@@ -204,8 +212,9 @@ log "config: $DATA_DIR/deploy.env (provider=$AI_PROVIDER)"
 if [ -d "$JEVDIR/model" ]; then
   log "jevos:  $JEVDIR ($(du -sh "$JEVDIR/model" | cut -f1) model)"
 fi
-if [ "$AI_PROVIDER" = "ollama" ]; then
-  log "ollama: $OLLAMA_URL model=$OLLAMA_MODEL"
+if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "ollama27b" ]; then
+  log "ollama:    $OLLAMA_URL model=$OLLAMA_MODEL"
+  log "ollama27b: $OLLAMA27_URL model=$OLLAMA27_MODEL"
 fi
 if [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ]; then
   log "startlux:    $STARTLUX_URL model=$STARTLUX_MODEL"

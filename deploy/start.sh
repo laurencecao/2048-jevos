@@ -15,6 +15,8 @@ THREADS="${JEVOS_THREADS:-4}"
 AI_PROVIDER="${AI_PROVIDER:-jevos}"
 OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-clef-flash:9b}"
+OLLAMA27_URL="${OLLAMA27_URL:-http://127.0.0.1:11434}"
+OLLAMA27_MODEL="${OLLAMA27_MODEL:-clef:27b}"
 STARTLUX_URL="${STARTLUX_URL:-http://127.0.0.1:8081}"
 STARTLUX_MODEL="${STARTLUX_MODEL:-StartLux-Decision-v1.1-9B-Instant}"
 STARTLUX27_URL="${STARTLUX27_URL:-http://127.0.0.1:8082}"
@@ -32,7 +34,7 @@ wait_healthy() { # url timeout_s
   return 1
 }
 
-if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ]; then
+if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "ollama27b" ] || [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ]; then
   log "provider=$AI_PROVIDER: not starting jevos (set AI_PROVIDER=jevos to switch back)"
 elif healthy "http://127.0.0.1:$JEVOS_PORT/health"; then
   log "jevos already healthy on $JEVOS_PORT"
@@ -56,6 +58,7 @@ else
   # call the next binary directly: keeps the PID stable for stop.sh
   ( cd "$REPO_DIR" && AI_PROVIDER="$AI_PROVIDER" \
       OLLAMA_URL="$OLLAMA_URL" OLLAMA_MODEL="$OLLAMA_MODEL" \
+      OLLAMA27_URL="$OLLAMA27_URL" OLLAMA27_MODEL="$OLLAMA27_MODEL" \
       STARTLUX_URL="$STARTLUX_URL" STARTLUX_MODEL="$STARTLUX_MODEL" \
       STARTLUX27_URL="$STARTLUX27_URL" STARTLUX27_MODEL="$STARTLUX27_MODEL" \
       JEVOS_URL="http://127.0.0.1:$JEVOS_PORT" \
@@ -66,9 +69,10 @@ else
     || { echo "web failed to become healthy; last log:" >&2; tail -20 "$LOGS/web.log" >&2; exit 7; }
 fi
 
-if [ "$AI_PROVIDER" = "ollama" ]; then
+if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "ollama27b" ]; then
   ollama_ok="$(curl -fsS -m 3 "$OLLAMA_URL/api/tags" >/dev/null 2>&1 && echo yes || echo no)"
-  log "ready: http://127.0.0.1:$WEB_PORT/  (engine=ollama $OLLAMA_MODEL at $OLLAMA_URL, reachable=$ollama_ok)"
+  ollama27_ok="$(curl -fsS -m 3 "$OLLAMA27_URL/api/tags" >/dev/null 2>&1 && echo yes || echo no)"
+  log "ready: http://127.0.0.1:$WEB_PORT/  (engine=$AI_PROVIDER | ollama 9B $OLLAMA_MODEL at $OLLAMA_URL reachable=$ollama_ok | ollama27b $OLLAMA27_MODEL at $OLLAMA27_URL reachable=$ollama27_ok)"
 elif [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ]; then
   startlux_ok="$(curl -fsS -m 3 "$STARTLUX_URL/health" >/dev/null 2>&1 && echo yes || echo no)"
   startlux27_ok="$(curl -fsS -m 3 "$STARTLUX27_URL/health" >/dev/null 2>&1 && echo yes || echo no)"

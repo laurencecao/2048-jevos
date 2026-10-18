@@ -22,7 +22,12 @@ export type AiMode = "pure" | "hinted" | "assisted";
 
 /** Mirrors lib/engine.ts; kept local so the client bundle never imports the
  * server-side fetch helpers. */
-export type EngineProvider = "jevos" | "ollama" | "startlux" | "startlux27b";
+export type EngineProvider =
+  | "jevos"
+  | "ollama"
+  | "ollama27b"
+  | "startlux"
+  | "startlux27b";
 
 export type EngineInfo = {
   id: EngineProvider;
@@ -82,6 +87,19 @@ export type AiStats = {
 };
 
 const ENGINE_STORAGE_KEY = "2048-engine";
+
+/** Mirror of PROVIDERS in lib/engine.ts (the client bundle keeps its own list). */
+const ENGINE_PROVIDERS: EngineProvider[] = [
+  "jevos",
+  "ollama",
+  "ollama27b",
+  "startlux",
+  "startlux27b",
+];
+
+function isEngineProvider(value: string | null): value is EngineProvider {
+  return value !== null && (ENGINE_PROVIDERS as string[]).includes(value);
+}
 
 type AiContextValue = {
   running: boolean;
@@ -214,13 +232,9 @@ export default function AiProvider({ children }: PropsWithChildren) {
       const json = (await response.json()) as EngineHealth;
       setEngine(json);
       // First load with no explicit choice: adopt the server's default.
-      if (
-        json.provider === "jevos" ||
-        json.provider === "ollama" ||
-        json.provider === "startlux" ||
-        json.provider === "startlux27b"
-      ) {
-        setProviderState((current) => current ?? json.provider ?? null);
+      const reported = json.provider ?? null;
+      if (isEngineProvider(reported)) {
+        setProviderState((current) => current ?? reported);
       }
     } catch (caught) {
       setEngine({
@@ -237,7 +251,8 @@ export default function AiProvider({ children }: PropsWithChildren) {
     } catch {
       stored = null;
     }
-    if (stored === "jevos" || stored === "ollama") {
+    // Any known engine (including startlux*) survives a page reload.
+    if (isEngineProvider(stored)) {
       setProviderState(stored);
       void refreshHealth(stored);
       return;

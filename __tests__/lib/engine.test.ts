@@ -11,6 +11,8 @@ const KEYS = [
   "JEVOS_MODEL",
   "OLLAMA_URL",
   "OLLAMA_MODEL",
+  "OLLAMA27_URL",
+  "OLLAMA27_MODEL",
   "STARTLUX_URL",
   "STARTLUX_MODEL",
   "STARTLUX27_URL",
@@ -34,9 +36,10 @@ afterEach(() => {
 });
 
 describe("provider resolution", () => {
-  it("accepts only the four supported engines", () => {
+  it("accepts only the five supported engines", () => {
     expect(isProviderId("jevos")).toBe(true);
     expect(isProviderId("ollama")).toBe(true);
+    expect(isProviderId("ollama27b")).toBe(true);
     expect(isProviderId("startlux")).toBe(true);
     expect(isProviderId("startlux27b")).toBe(true);
     expect(isProviderId("openai")).toBe(false);
@@ -63,6 +66,24 @@ describe("provider resolution", () => {
     expect(engine.endpoint).toBe("http://127.0.0.1:11434");
     expect(engine.model).toBe("clef-flash:9b");
     expect(engine.transport).toBe("gpu");
+  });
+
+  it("adds the ollama 27B engine next to the 9B one on the same daemon", () => {
+    const engine = resolveEngine("ollama27b");
+    expect(engine.endpoint).toBe("http://127.0.0.1:11434");
+    expect(engine.model).toBe("clef:27b");
+    expect(engine.transport).toBe("gpu");
+    expect(engine.label).toBe("ollama-27b");
+
+    process.env.OLLAMA27_URL = "http://10.0.2.160:11434";
+    process.env.OLLAMA27_MODEL = "clef:27b-q4";
+    const custom = resolveEngine("ollama27b");
+    expect(custom.endpoint).toBe("http://10.0.2.160:11434");
+    expect(custom.model).toBe("clef:27b-q4");
+
+    // The 9B ollama engine keeps its own model and endpoint.
+    expect(resolveEngine("ollama").model).toBe("clef-flash:9b");
+    expect(resolveEngine("ollama").endpoint).toBe("http://127.0.0.1:11434");
   });
 
   it("resolves the startlux server on 8081", () => {
@@ -110,11 +131,12 @@ describe("provider resolution", () => {
     expect(resolveEngine(undefined).id).toBe("ollama");
   });
 
-  it("lists all four engines", () => {
+  it("lists all five engines", () => {
     const engines = engineList();
     expect(engines.map((engine) => engine.id)).toEqual([
       "jevos",
       "ollama",
+      "ollama27b",
       "startlux",
       "startlux27b",
     ]);

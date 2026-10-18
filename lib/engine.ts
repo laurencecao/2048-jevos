@@ -6,13 +6,18 @@
  *     -> { answers, usage }
  *
  * jevos (feder-cr/jev) speaks it natively. ollama >= 0.40 exposes the same
- * route for decision models such as clef-flash:9b, and the StartLux-Decision
- * server (startlux-decide serve, GGUF on llama.cpp) serves the same TypeSafe
- * format. Switching engines therefore only changes the endpoint and the model
- * id - the prompts stay untouched.
+ * route for decision models such as clef-flash:9b and clef:27b, and the
+ * StartLux-Decision server (startlux-decide serve, GGUF on llama.cpp) serves
+ * the same TypeSafe format. Switching engines therefore only changes the
+ * endpoint and the model id - the prompts stay untouched.
  */
 
-export type ProviderId = "jevos" | "ollama" | "startlux" | "startlux27b";
+export type ProviderId =
+  | "jevos"
+  | "ollama"
+  | "ollama27b"
+  | "startlux"
+  | "startlux27b";
 
 export type EngineConfig = {
   id: ProviderId;
@@ -46,6 +51,7 @@ export type SystemOneResponse = {
 export const PROVIDERS: ProviderId[] = [
   "jevos",
   "ollama",
+  "ollama27b",
   "startlux",
   "startlux27b",
 ];
@@ -64,6 +70,16 @@ const DEFAULTS = {
     label: "ollama",
     transport: "gpu" as const,
     hint: "Start ollama and pull the model: ollama pull clef-flash:9b",
+  },
+  ollama27b: {
+    // Same daemon as ollama, a different decision model: clef:27b is 27B
+    // Q4_K_M (~18 GB), so on 4x A2 it needs the layers spread over several
+    // GPUs (deploy/ollama-gpu.sh) instead of a single card.
+    url: "http://127.0.0.1:11434",
+    model: "clef:27b",
+    label: "ollama-27b",
+    transport: "gpu" as const,
+    hint: "ollama pull clef:27b, then spread it over the GPUs: bash deploy/ollama-gpu.sh apply",
   },
   startlux: {
     // startlux-decide serve fronts llama-server: 8081 is the decision API,
@@ -88,6 +104,7 @@ const DEFAULTS = {
 const ENV_KEYS: Record<ProviderId, { url: string; model: string }> = {
   jevos: { url: "JEVOS_URL", model: "JEVOS_MODEL" },
   ollama: { url: "OLLAMA_URL", model: "OLLAMA_MODEL" },
+  ollama27b: { url: "OLLAMA27_URL", model: "OLLAMA27_MODEL" },
   startlux: { url: "STARTLUX_URL", model: "STARTLUX_MODEL" },
   startlux27b: { url: "STARTLUX27_URL", model: "STARTLUX27_MODEL" },
 };
@@ -101,6 +118,7 @@ export function isProviderId(value: unknown): value is ProviderId {
   return (
     value === "jevos" ||
     value === "ollama" ||
+    value === "ollama27b" ||
     value === "startlux" ||
     value === "startlux27b"
   );
@@ -206,8 +224,9 @@ export async function engineHealth(provider?: unknown): Promise<EngineHealth> {
       };
     }
 
-    // ollama: /api/version proves the daemon is up, /api/tags proves the
-    // decision model is actually pulled (otherwise every move would 404).
+    // ollama + ollama27b: /api/version proves the daemon is up, /api/tags
+    // proves the decision model is actually pulled (otherwise every move
+    // would 404). Both engines talk to the same daemon by default.
     const version = await fetch(engine.endpoint + "/api/version", {
       cache: "no-store",
       signal: AbortSignal.timeout(3000),
@@ -279,9 +298,15 @@ export async function askEngine(
     state,
     questions,
   };
-  if (engine.id === "ollama") {
-    // Keep the 10 GB model resident between moves; a cold load takes ~110 s.
-    body.keep_alive = env("OLLAMA_KEEP_ALIVE") || "30m";
+  if (engine.id === "ollama" || engine.id === "ollama27b") {
+    // Keep the decision model resident between moves; a cold load of the 9B
+    // takes ~110 s, the 27B takes a few minutes. OLLAMA27_KEEP_ALIVE wins for
+    // the 27B engine, OLLAMA_KEEP_ALIVE stays the shared fallback.
+    const keepAlive =
+      engine.id === "ollama27b"
+        ? env("OLLAMA27_KEEP_ALIVE") || env("OLLAMA_KEEP_ALIVE")
+        : env("OLLAMA_KEEP_ALIVE");
+    body.keep_alive = keepAlive || "30m";
   }
 
   // ollama may need to load the model on the first request, so allow more
@@ -291,9 +316,11 @@ export async function askEngine(
   const timeoutMs =
     engine.id === "ollama"
       ? 180000
-      : engine.id === "startlux" || engine.id === "startlux27b"
-        ? 120000
-        : 30000;
+      : engine.id === "ollama27b"
+        ? 300000
+        : engine.id === "startlux" || engine.id === "startlux27b"
+          ? 120000
+          : 30000;
 
   let response: Response;
   try {

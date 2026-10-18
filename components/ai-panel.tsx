@@ -15,6 +15,7 @@ const ENGINE_FALLBACK: {
 }[] = [
   { id: "jevos", label: "jevos", model: "jev-latest", transport: "cpu" },
   { id: "ollama", label: "ollama", model: "clef-flash:9b", transport: "gpu" },
+  { id: "ollama27b", label: "ollama-27b", model: "clef:27b", transport: "gpu" },
   {
     id: "startlux",
     label: "startlux",

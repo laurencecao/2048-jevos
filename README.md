@@ -2,10 +2,12 @@
 
 浏览器里是一局**完整可手玩的 2048**（fork 自 [mateuszsokola/2048-in-react](https://github.com/mateuszsokola/2048-in-react)，MIT），右侧面板让**本机模型**来选每一步：方向、每个候选的概率、置信度、推理延迟、token 数，以及它这一步看到的完整提示词，全部实时摊开。
 
-两种引擎，同一套协议，可在配置或页面上切换：
+多个引擎，同一套协议，可在配置或页面上切换：
 
 - **jevos**（默认）：C++ / OpenVINO int8，纯 CPU；
-- **ollama**：`clef-flash:9b`（decision 模型，Q8_0），有 GPU 时自动跑 GPU。
+- **ollama**：`clef-flash:9b`（decision 模型，Q8_0），有 GPU 时自动跑 GPU；
+- **ollama-27b**：`clef:27b`（27B Q4_K_M，约 18 GB），同一个 ollama 守护进程，
+  需要把层摊到多张卡上（`deploy/ollama-gpu.sh`）。
 
 ![screenshot](docs/screenshot.png)
 
@@ -30,7 +32,8 @@ bash deploy/install.sh --port 3000 --threads 4
 用 ollama 而不是 jevos（跳过 jevos 资产下载）：
 
 ```bash
-bash deploy/install.sh --provider ollama          # 默认引擎 = ollama
+bash deploy/install.sh --provider ollama          # 默认引擎 = ollama（clef-flash:9b）
+bash deploy/install.sh --provider ollama27b       # 默认引擎 = ollama-27b（clef:27b）
 bash deploy/switch-provider.sh ollama             # 已装好的环境里切换并重启
 ```
 
@@ -48,12 +51,13 @@ npm run dev:all                 # 起 jevos（.jevos/jev 或 JEVOS_DIR）+ next 
 
 ## 推理引擎：jevos、ollama 与 StartLux（可在配置中切换）
 
-| 引擎            | 传输                | 默认地址                 | 默认模型                                       | 适用                         |
-| --------------- | ------------------- | ------------------------ | ---------------------------------------------- | ---------------------------- |
-| `jevos`（默认） | CPU · OpenVINO int8 | `http://127.0.0.1:8017`  | `jev-latest`（实际 `jevos-v5`）                | 单机无 GPU，零依赖           |
-| `ollama`        | GPU（有卡时）       | `http://127.0.0.1:11434` | `clef-flash:9b`                                | 已有 ollama / GPU 空闲的机器 |
-| `startlux`      | GPU · llama.cpp     | `http://127.0.0.1:8081`  | `StartLux-Decision-v1.1-9B-Instant`（Q8_0）    | 有 GGUF + 想换一个决策模型   |
-| `startlux27b`   | GPU · llama.cpp     | `http://127.0.0.1:8082`  | `StartLux-Decision-v1.1-27B-Instant`（Q4_K_M） | 同机想同时留一个更大的脑子   |
+| 引擎            | 传输                | 默认地址                 | 默认模型                                       | 适用                                   |
+| --------------- | ------------------- | ------------------------ | ---------------------------------------------- | -------------------------------------- |
+| `jevos`（默认） | CPU · OpenVINO int8 | `http://127.0.0.1:8017`  | `jev-latest`（实际 `jevos-v5`）                | 单机无 GPU，零依赖                     |
+| `ollama`        | GPU（有卡时）       | `http://127.0.0.1:11434` | `clef-flash:9b`                                | 已有 ollama / GPU 空闲的机器           |
+| `ollama27b`     | GPU · 多卡分摊      | `http://127.0.0.1:11434` | `clef:27b`（27B Q4_K_M）                       | 想在同一个 ollama 里再放一个更大的脑子 |
+| `startlux`      | GPU · llama.cpp     | `http://127.0.0.1:8081`  | `StartLux-Decision-v1.1-9B-Instant`（Q8_0）    | 有 GGUF + 想换一个决策模型             |
+| `startlux27b`   | GPU · llama.cpp     | `http://127.0.0.1:8082`  | `StartLux-Decision-v1.1-27B-Instant`（Q4_K_M） | 同机想同时留一个更大的脑子             |
 
 ollama ≥ 0.40 为 decision 模型（如 `clef-flash:9b`）提供 **`/v1/systemone`**，StartLux-Decision 的
 `startlux-decide serve` 也提供同一协议；请求与响应和 jevos 逐字段一致：
@@ -82,13 +86,18 @@ AI_PROVIDER=ollama
 OLLAMA_URL=http://127.0.0.1:11434
 OLLAMA_MODEL=clef-flash:9b
 OLLAMA_KEEP_ALIVE=30m
+# 27B 另加一条（同一个守护进程，不替换 9B）：
+OLLAMA27_URL=http://127.0.0.1:11434
+OLLAMA27_MODEL=clef:27b
 ```
 
 部署环境，改 `<data-dir>/deploy.env` 后重启，或用一条命令：
 
 ```bash
-bash deploy/switch-provider.sh ollama                     # 切到 ollama 并重启
+bash deploy/switch-provider.sh ollama                     # 切到 ollama 9B 并重启
 bash deploy/switch-provider.sh ollama clef-flash:9b       # 同时指定模型
+bash deploy/switch-provider.sh ollama27b                  # 切到 ollama 27B（clef:27b）
+bash deploy/switch-provider.sh ollama27b clef:27b-q4      # 同时指定 27B 模型
 bash deploy/switch-provider.sh jevos                      # 切回 jevos（会重新起 jevos）
 ```
 
@@ -97,11 +106,51 @@ ollama 侧准备：
 ```bash
 ollama serve                                            # 或 docker run -d --gpus=all -p 11434:11434 ollama/ollama
 ollama pull clef-flash:9b                               # 10.6 GB（Q8_0，9.1B）
+ollama pull clef:27b                                    # 约 18 GB（Q4_K_M，27B）——与 9B 并存，不替换
 ```
 
 **冷启动**：首次请求要加载 10.6 GB 模型，实测 ~110 s（4× NVIDIA A2）。之后：浅局单问 **0.32–0.67 s**；
 真实对局 120 步实测 **assisted 均值 1.39 s/步、hinted 均值 1.00 s/步**（含 HTTP 与 Next 转发）。
 再用 `OLLAMA_KEEP_ALIVE`（默认 `30m`）让模型常驻，避免每隔半小时重新加载。
+
+#### ollama 27B（`clef:27b`）与 GPU 分摊
+
+`ollama27b` 是**新增**的第五个引擎，不是把 `ollama` 换掉：两者指向同一个 ollama 守护进程
+（默认 `:11434`），只是模型名不同（`clef-flash:9b` / `clef:27b`），页面下拉里可以随时切换。
+
+```bash
+AI_PROVIDER=ollama27b，对应
+OLLAMA27_URL=http://127.0.0.1:11434
+OLLAMA27_MODEL=clef:27b
+
+bash deploy/switch-provider.sh ollama27b      # 改服务端默认引擎并重启 Web
+```
+
+**为什么要单独配 GPU**：`clef:27b` 是 27B Q4_K_M，权重约 18 GB，而本机 4×A2 **单卡只有 15.3 GB**。
+ollama 默认会尽量塞进一张卡（实测它起的 llama-server 是 `--split-mode none --main-gpu 0`），
+塞不下就退回 CPU，速度会差一个量级。用仓库里的脚本把容器重建成「四卡分摊 + 两个模型常驻」：
+
+```bash
+bash deploy/ollama-gpu.sh status    # 看容器 env、显存、已拉取的模型
+bash deploy/ollama-gpu.sh apply     # 重建容器：OLLAMA_SCHED_SPREAD=1 等（保留数据卷）
+```
+
+脚本写入的关键 env：
+
+| 变量                       | 值     | 作用                                   |
+| -------------------------- | ------ | -------------------------------------- |
+| `OLLAMA_SCHED_SPREAD`      | `1`    | 把层摊到所有可见 GPU（27B 单卡放不下） |
+| `OLLAMA_MAX_LOADED_MODELS` | `2`    | 允许 9B 与 27B 同时常驻                |
+| `OLLAMA_NUM_PARALLEL`      | `1`    | 每个模型一个并发，省 KV 显存           |
+| `OLLAMA_KV_CACHE_TYPE`     | `q8_0` | KV cache 量化                          |
+| `OLLAMA_FLASH_ATTENTION`   | `1`    | 开 flash attention                     |
+| `OLLAMA_KEEP_ALIVE`        | `30m`  | 常驻时长                               |
+
+> `apply` **会重建容器**（同名、同镜像、同 `/root/.ollama` 数据卷、同端口）。如果正在
+> `ollama pull clef:27b`，脚本会拒绝执行（`--force` 才会强来），避免下载作废。
+
+冷启动：18 GB 权重读进显存通常要 2–4 分钟，期间第一次 `/v1/systemone` 会一直等到加载完
+（app 侧超时放宽到 300 s）。之后与 9B 同量级，主要差别在每步推理更慢。
 
 ### StartLux-Decision（GGUF + llama.cpp）
 
@@ -165,14 +214,14 @@ bash deploy/switch-provider.sh startlux27b   # 把默认引擎切成 27B
 
 ## 界面
 
-| 控件                        | 作用                                                                |
-| --------------------------- | ------------------------------------------------------------------- |
-| **▶ 让 AI 开始 / ⏸ 暂停** | 开始或暂停自动走；暂停后方向键可手动玩                              |
-| **⏭ 单步**                 | 只让当前引擎走一步，然后自动暂停                                    |
-| **引擎**                    | jevos / ollama / startlux（9B）/ startlux-27b，切换只影响当前浏览器 |
-| **↻ 重开**                  | 重置棋盘；如果正在自动走，会接着新局继续                            |
-| **决策模式**                | 见下表                                                              |
-| **间隔**                    | 两步之间的额外等待（0–1200 ms），不含模型推理时间                   |
+| 控件                        | 作用                                                                                  |
+| --------------------------- | ------------------------------------------------------------------------------------- |
+| **▶ 让 AI 开始 / ⏸ 暂停** | 开始或暂停自动走；暂停后方向键可手动玩                                                |
+| **⏭ 单步**                 | 只让当前引擎走一步，然后自动暂停                                                      |
+| **引擎**                    | jevos / ollama（9B）/ ollama-27b / startlux（9B）/ startlux-27b，切换只影响当前浏览器 |
+| **↻ 重开**                  | 重置棋盘；如果正在自动走，会接着新局继续                                              |
+| **决策模式**                | 见下表                                                                                |
+| **间隔**                    | 两步之间的额外等待（0–1200 ms），不含模型推理时间                                     |
 
 棋盘上方的小圆点：绿色=空闲，橙色脉冲=jevos 正在推理，灰色=暂停。
 
@@ -197,7 +246,8 @@ bash deploy/switch-provider.sh startlux27b   # 把默认引擎切成 27B
 Next.js API 路由（同源，无 CORS）
   │  按 provider 选引擎（lib/engine.ts）
   ├──> jevos  http://127.0.0.1:8017/v1/systemone   （CPU · OpenVINO int8）
-  ├──> ollama http://127.0.0.1:11434/v1/systemone  （GPU · clef-flash:9b）
+  ├──> ollama   http://127.0.0.1:11434/v1/systemone （GPU · clef-flash:9b）
+  ├──> ollama27b http://127.0.0.1:11434/v1/systemone （GPU · clef:27b，多卡分摊）
   └──> startlux      http://127.0.0.1:8081/v1/systemone （GPU · llama.cpp + 9B GGUF）
   └──> startlux27b   http://127.0.0.1:8082/v1/systemone （GPU · llama.cpp + 27B GGUF）
   │  choice + 每个候选概率 + score 形势判断
@@ -207,16 +257,16 @@ Next.js API 路由（同源，无 CORS）
 
 关键文件：
 
-| 文件                        | 职责                                                                                                                   |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `lib/game.ts`               | 4×4 引擎：`[x,y]`→`board[y][x]`、四个方向模拟、合法走法、1-ply 启发式、提示词里的局面描述                              |
-| `lib/prompt.ts`             | 三种模式的 prompt：state + 每个候选一行说明 + choice/score 问题                                                        |
-| `lib/engine.ts`             | 引擎注册与解析（jevos / ollama / startlux / startlux27b）、健康检查、`/v1/systemone` 客户端；ollama 冷启动放宽到 180 s |
-| `pages/api/jevos/move.ts`   | 校验棋盘、枚举合法走法、调模型、把 choice 概率和 outlook 原样返回；只有一个合法走法时不调用模型                        |
-| `pages/api/jevos/health.ts` | 面板左上角那个绿点就是它                                                                                               |
-| `context/ai-context.tsx`    | 自动循环、暂停/单步/重开、动画等待、no-op 防护（同一局面某方向不生效就排除它重试）                                     |
-| `components/ai-panel.tsx`   | 面板 UI                                                                                                                |
-| `components/board.tsx`      | 原游戏棋盘；AI 运行时屏蔽方向键                                                                                        |
+| 文件                        | 职责                                                                                                                                           |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/game.ts`               | 4×4 引擎：`[x,y]`→`board[y][x]`、四个方向模拟、合法走法、1-ply 启发式、提示词里的局面描述                                                      |
+| `lib/prompt.ts`             | 三种模式的 prompt：state + 每个候选一行说明 + choice/score 问题                                                                                |
+| `lib/engine.ts`             | 引擎注册与解析（jevos / ollama / ollama27b / startlux / startlux27b）、健康检查、`/v1/systemone` 客户端；ollama 冷启动 180 s，27B 放宽到 300 s |
+| `pages/api/jevos/move.ts`   | 校验棋盘、枚举合法走法、调模型、把 choice 概率和 outlook 原样返回；只有一个合法走法时不调用模型                                                |
+| `pages/api/jevos/health.ts` | 面板左上角那个绿点就是它                                                                                                                       |
+| `context/ai-context.tsx`    | 自动循环、暂停/单步/重开、动画等待、no-op 防护（同一局面某方向不生效就排除它重试）                                                             |
+| `components/ai-panel.tsx`   | 面板 UI                                                                                                                                        |
+| `components/board.tsx`      | 原游戏棋盘；AI 运行时屏蔽方向键                                                                                                                |
 
 一次请求的 prompt 长这样（面板里可展开看全文）：
 
@@ -286,32 +336,36 @@ curl -s -X POST http://localhost:3000/api/jevos/move \
 ## 验证
 
 ```bash
-npx jest --runInBand --watchAll=false   # 41 passed（含新增的 6 条 2048 引擎用例）
+npx jest --runInBand --watchAll=false   # 52 passed（含 9 条引擎解析用例）
 npm run build                           # Next 生产构建通过
 npm run lint                            # No ESLint warnings or errors
 ```
 
 ## 环境变量
 
-| 变量                      | 默认                     | 说明                                     |
-| ------------------------- | ------------------------ | ---------------------------------------- |
-| `AI_PROVIDER`             | `jevos`                  | 默认引擎：`jevos` / `ollama`             |
-| `JEVOS_URL`               | `http://127.0.0.1:8017`  | jevos 地址                               |
-| `JEVOS_MODEL`             | `jev-latest`             | 请求里的 model 名                        |
-| `OLLAMA_URL`              | `http://127.0.0.1:11434` | ollama 地址                              |
-| `OLLAMA_MODEL`            | `clef-flash:9b`          | ollama 决策模型（必须是 decision 模型）  |
-| `OLLAMA_KEEP_ALIVE`       | `30m`                    | 模型常驻时长（冷加载一次 ~110 s）        |
-| `JEVOS_DIR`               | `<repo>/.jevos/jev`      | `dev:all` 启动 jevos 时用的目录          |
-| `JEVOS_THREADS`           | `4`                      | `dev:all` 传给 `jev serve --threads`     |
-| `JEVOS_DATA_DIR`          | `<repo>/.jevos`          | 部署脚本的数据目录（二进制、模型、日志） |
-| `WEB_PORT` / `JEVOS_PORT` | `3000` / `8017`          | 部署脚本使用的端口                       |
-| `JEVOS_ASSET_BASE`        | GitHub Releases          | 资产下载基址（镜像/代理）                |
-| `PORT`                    | `3000`                   | Next.js 端口                             |
+| 变量                      | 默认                     | 说明                                                                    |
+| ------------------------- | ------------------------ | ----------------------------------------------------------------------- |
+| `AI_PROVIDER`             | `jevos`                  | 默认引擎：`jevos` / `ollama` / `ollama27b` / `startlux` / `startlux27b` |
+| `JEVOS_URL`               | `http://127.0.0.1:8017`  | jevos 地址                                                              |
+| `JEVOS_MODEL`             | `jev-latest`             | 请求里的 model 名                                                       |
+| `OLLAMA_URL`              | `http://127.0.0.1:11434` | ollama 地址                                                             |
+| `OLLAMA_MODEL`            | `clef-flash:9b`          | ollama 9B 决策模型（必须是 decision 模型）                              |
+| `OLLAMA_KEEP_ALIVE`       | `30m`                    | 模型常驻时长（冷加载一次 ~110 s）                                       |
+| `OLLAMA27_URL`            | `http://127.0.0.1:11434` | ollama-27b 的守护进程地址（可与 9B 相同）                               |
+| `OLLAMA27_MODEL`          | `clef:27b`               | ollama 27B 决策模型                                                     |
+| `OLLAMA27_KEEP_ALIVE`     | 继承 `OLLAMA_KEEP_ALIVE` | 27B 的常驻时长（可选覆盖）                                              |
+| `JEVOS_DIR`               | `<repo>/.jevos/jev`      | `dev:all` 启动 jevos 时用的目录                                         |
+| `JEVOS_THREADS`           | `4`                      | `dev:all` 传给 `jev serve --threads`                                    |
+| `JEVOS_DATA_DIR`          | `<repo>/.jevos`          | 部署脚本的数据目录（二进制、模型、日志）                                |
+| `WEB_PORT` / `JEVOS_PORT` | `3000` / `8017`          | 部署脚本使用的端口                                                      |
+| `JEVOS_ASSET_BASE`        | GitHub Releases          | 资产下载基址（镜像/代理）                                               |
+| `PORT`                    | `3000`                   | Next.js 端口                                                            |
 
 ## 已知限制
 
 - **模型不是 2048 AI**：jevos / clef 都没有搜索树，只有一次前向判断；分数高低不代表模型能力，只代表这局的手气。
 - **ollama 首次请求慢**：10.6 GB 模型冷加载实测 ~110 s（4× A2），之后 0.3–0.7 s/步；模型被卸载后会再加载一次。
+  27B（`clef:27b`，~18 GB）冷加载 2–4 分钟，且必须让 ollama 跨卡分摊，否则会掉到 CPU。
 - 默认模式里"候选过滤"是启发式，**落子**是模型；想只看模型，切"纯 jevos"。
 - 每步的实际耗时 = 模型推理（0.8–2.5 s）+ 150 ms 间隔 + 约 270 ms 动画等待。
 - 面板上的"置信度"是模型自报的 softmax 置信度，低置信不等于一定错，但值得注意。

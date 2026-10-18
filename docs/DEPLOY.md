@@ -14,8 +14,10 @@
 | `http://127.0.0.1:11434`       | ollama（选了 ollama 引擎时使用）         |
 
 ```
-浏览器 ──HTTP──> Next.js :3000 ──HTTP──> jevos  :8017（本机 CPU）
-                    │                └──> ollama :11434（GPU · clef-flash:9b）
+浏览器 ──HTTP──> Next.js :3000 ──HTTP──> jevos     :8017（本机 CPU）
+                    │                ├──> ollama    :11434（GPU · clef-flash:9b）
+                    │                ├──> ollama27b :11434（GPU · clef:27b，多卡分摊）
+                    │                └──> startlux  :8081 / :8082（GPU · GGUF）
                     └─ /api/jevos/move：把局面编译成 choice/score 问题
 ```
 
@@ -23,6 +25,7 @@
 
 - **jevos**（默认）：C++ / OpenVINO int8，单二进制 + 679 MB 模型，纯 CPU；
 - **ollama**：decision 模型 `clef-flash:9b`（10.6 GB Q8_0），有 GPU 时自动上 GPU；
+- **ollama27b**：同一个 ollama 守护进程上的 `clef:27b`（27B Q4_K_M，~18 GB），需要跨卡分摊（见 §2.1.1）；
 - **2048**：Next.js 14，生产模式 `next start`，两个引擎共用。
 
 ---
@@ -59,22 +62,24 @@ bash deploy/install.sh
 5. 写 `<data>/deploy.env`（端口、线程数、仓库路径）；
 6. 调 `deploy/start.sh`：起 jevos（等健康）→ 起 Web（等 200）。
 
-| 选项                      | 默认                                 | 说明                                                                                            |
-| ------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `--data-dir DIR`          | `<repo>/.jevos`                      | jevos 运行时目录（二进制、模型、日志、pid）                                                     |
-| `--port P`                | `3000`                               | Web 端口                                                                                        |
-| `--jevos-port P`          | `8017`                               | jevos 端口                                                                                      |
-| `--threads N`             | `4`                                  | jevos CPU 线程数                                                                                |
-| `--provider NAME`         | `jevos`                              | 默认引擎：`jevos` / `ollama` / `startlux`（9B）/ `startlux27b`（27B）；非 jevos 跳过 jevos 资产 |
-| `--ollama-url URL`        | `http://127.0.0.1:11434`             | ollama 地址                                                                                     |
-| `--ollama-model ID`       | `clef-flash:9b`                      | ollama decision 模型                                                                            |
-| `--startlux-url URL`      | `http://127.0.0.1:8081`              | 9B startlux-decide 地址                                                                         |
-| `--startlux-model NAME`   | `StartLux-Decision-v1.1-9B-Instant`  | 9B 健康检查里报告的名字                                                                         |
-| `--startlux27-url URL`    | `http://127.0.0.1:8082`              | 27B startlux-decide 地址                                                                        |
-| `--startlux27-model NAME` | `StartLux-Decision-v1.1-27B-Instant` | 27B 健康检查里报告的名字                                                                        |
-| `--assets-dir DIR`        | —                                    | 用已下载好的发布包，完全离线安装                                                                |
-| `--no-start`              | —                                    | 只安装，不启动                                                                                  |
-| `--skip-npm`              | —                                    | 跳过 `npm ci`/`build`（依赖已就位）                                                             |
+| 选项                      | 默认                                 | 说明                                                                                                                     |
+| ------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `--data-dir DIR`          | `<repo>/.jevos`                      | jevos 运行时目录（二进制、模型、日志、pid）                                                                              |
+| `--port P`                | `3000`                               | Web 端口                                                                                                                 |
+| `--jevos-port P`          | `8017`                               | jevos 端口                                                                                                               |
+| `--threads N`             | `4`                                  | jevos CPU 线程数                                                                                                         |
+| `--provider NAME`         | `jevos`                              | 默认引擎：`jevos` / `ollama`（9B）/ `ollama27b`（27B）/ `startlux`（9B）/ `startlux27b`（27B）；非 jevos 跳过 jevos 资产 |
+| `--ollama-url URL`        | `http://127.0.0.1:11434`             | ollama 地址（9B）                                                                                                        |
+| `--ollama-model ID`       | `clef-flash:9b`                      | ollama 9B decision 模型                                                                                                  |
+| `--ollama27-url URL`      | `http://127.0.0.1:11434`             | ollama 地址（27B，默认与 9B 同一个守护进程）                                                                             |
+| `--ollama27-model ID`     | `clef:27b`                           | ollama 27B decision 模型                                                                                                 |
+| `--startlux-url URL`      | `http://127.0.0.1:8081`              | 9B startlux-decide 地址                                                                                                  |
+| `--startlux-model NAME`   | `StartLux-Decision-v1.1-9B-Instant`  | 9B 健康检查里报告的名字                                                                                                  |
+| `--startlux27-url URL`    | `http://127.0.0.1:8082`              | 27B startlux-decide 地址                                                                                                 |
+| `--startlux27-model NAME` | `StartLux-Decision-v1.1-27B-Instant` | 27B 健康检查里报告的名字                                                                                                 |
+| `--assets-dir DIR`        | —                                    | 用已下载好的发布包，完全离线安装                                                                                         |
+| `--no-start`              | —                                    | 只安装，不启动                                                                                                           |
+| `--skip-npm`              | —                                    | 跳过 `npm ci`/`build`（依赖已就位）                                                                                      |
 
 **游戏与 jevos 放在同一个父目录**（本机实际采用的布局）：
 
@@ -121,8 +126,9 @@ OLLAMA_MODEL="clef-flash:9b"
 **切换（不重装、不动资产）**
 
 ```bash
-bash deploy/switch-provider.sh ollama                 # 改配置 + 重启 Web
+bash deploy/switch-provider.sh ollama                 # 改配置 + 重启 Web（9B）
 bash deploy/switch-provider.sh ollama clef-flash:9b   # 同时指定模型
+bash deploy/switch-provider.sh ollama27b              # 切到 27B（clef:27b），仍然不替换 9B
 bash deploy/switch-provider.sh jevos                  # 切回 jevos
 ```
 
@@ -144,6 +150,71 @@ curl -s -X POST http://127.0.0.1:3000/api/jevos/move \
 2. **保持常驻**：`OLLAMA_KEEP_ALIVE=30m`（默认），app 每次请求都会带 `keep_alive`。
 3. **不能用 chat/generate**：`clef-flash:9b` 只支持 decision 协议，`/api/chat`、`/api/generate` 返回 `does not support chat/generate` —— 这是正常的，必须走 `/v1/systemone`。
 4. **页面也能切**：右侧「引擎」下拉的切换存在浏览器 `localStorage`，只影响当前浏览器；服务端默认值仍由 `AI_PROVIDER` 决定。
+
+---
+
+## 2.1.1 · Ollama 27B 后端（`clef:27b`，新增而非替换）
+
+`ollama27b` 与 `ollama` 共用同一个守护进程（默认 `:11434`），只是模型不同：
+`clef-flash:9b`（10.6 GB）与 `clef:27b`（27B Q4_K_M，~18 GB）。页面下拉里两者并列，
+切到 27B **不会**停掉 9B 的模型文件，只是换一个 `model` 字段。
+
+**前提**
+
+| 项   | 要求                                               |
+| ---- | -------------------------------------------------- |
+| 模型 | `ollama pull clef:27b`（~18 GB）                   |
+| 显存 | 18 GB 权重 **放不进单张 16 GB 卡**，必须跨卡分摊   |
+| 驱动 | 容器需要 `--gpus all`；`nvidia-smi` 能看到 4 张 A2 |
+
+**GPU 分摊（关键）**
+
+stock ollama 会优先把模型塞进一张卡（实测它起的 llama-server 参数是
+`--split-mode none --main-gpu 0`），放不下就退回 CPU。用脚本把容器重建成跨卡模式：
+
+```bash
+bash deploy/ollama-gpu.sh status    # 当前 env / 显存 / 已拉取模型
+bash deploy/ollama-gpu.sh apply     # 重建容器（同名、同镜像、同 /root/.ollama 数据卷、同端口）
+```
+
+脚本写入的 env：
+
+```
+OLLAMA_SCHED_SPREAD=1         # 摊到所有可见 GPU
+OLLAMA_MAX_LOADED_MODELS=2    # 9B 与 27B 同时常驻
+OLLAMA_NUM_PARALLEL=1         # 每模型一个并发，省 KV
+OLLAMA_KV_CACHE_TYPE=q8_0     # KV cache 量化
+OLLAMA_FLASH_ATTENTION=1
+OLLAMA_KEEP_ALIVE=30m
+```
+
+> `apply` 会 `docker rm -f` 后重建。若容器里正在 `ollama pull clef:27b`，脚本**拒绝执行**
+> （下载会作废），必须等 pull 完；`--force` 才会强来。数据卷来自
+> `docker inspect`，不会丢已下载的模型。
+
+**配置与切换**
+
+```bash
+AI_PROVIDER="ollama27b"
+OLLAMA27_URL="http://127.0.0.1:11434"
+OLLAMA27_MODEL="clef:27b"
+# 可选：单独的常驻时长，缺省继承 OLLAMA_KEEP_ALIVE
+OLLAMA27_KEEP_ALIVE="30m"
+
+bash deploy/switch-provider.sh ollama27b            # 默认引擎切到 27B 并重启 Web
+bash deploy/install.sh --provider ollama27b         # 全新安装时直接选 27B
+```
+
+**验收与会话特征**
+
+```bash
+curl -s 'http://127.0.0.1:3000/api/jevos/health?provider=ollama27b'
+# {"ok":true,"provider":"ollama27b","label":"ollama-27b","model":"clef:27b","transport":"gpu",...}
+```
+
+- 冷加载 18 GB 约 2–4 分钟；app 对 27B 的超时放宽到 **300 s**（9B 是 180 s）。
+- 两个模型都常驻时显存合计约 29 GB（4×A2 共 61 GB）；再叠 StartLux 双模型会很紧，见 §2.2 末。
+- 健康检查会核对 `/api/tags` 里**确实有** `clef:27b`；没拉完时返回 503 并提示 `ollama pull clef:27b`。
 
 ---
 
@@ -223,8 +294,9 @@ bash deploy/switch-provider.sh startlux27b    # 27B
 - 没装成 CLI 时可直接跑源码：`PYTHONPATH=<target>:<repo> python3 -m startlux_decide.cli serve ...`；
   仓库的 `deploy/startlux-serve.sh` 已封装（读 `STARTLUX_MODEL_DIR` / `STARTLUX_LLAMACPP_URL` / `STARTLUX_PORT`）。
 - llama-server 一侧由 `deploy/startlux-llama.sh` 起（读 `STARTLUX_GGUF` / `LLAMACPP_BIN` / `LLAMACPP_PORT` / `STARTLUX_CTX`，可选 `STARTLUX_MMPROJ`）。
-- GPU：9B 与 27B 两个 StartLux 可以在 4×A2 上**同时常驻**（见上文显存说明）；但与 ollama clef（约 12.9 GB）合计
-  会超出余量，切回 ollama 前先 `bash deploy/startlux-both.sh stop`。
+- GPU：9B 与 27B 两个 StartLux 可以在 4×A2 上**同时常驻**（见上文显存说明）；再叠加 ollama
+  的 9B + 27B（合计约 29 GB）会逼近 61 GB 上限，且 KV 还要额外算。两套一起跑前先把
+  `bash deploy/startlux-both.sh stop` 或 `docker stop ollama` 其中一套停掉。
 
 **验收**
 
@@ -300,16 +372,17 @@ bash deploy/install.sh --assets-dir /path/to/assets
 2048-jevos/
 ├── deploy/
 │   ├── install.sh      # 下载 + 校验 + 解包 + 构建 + 启动
-│   ├── start.sh        # 幂等启动（按 AI_PROVIDER 决定起 jevos 还是只用 ollama）
+│   ├── start.sh        # 幂等启动（按 AI_PROVIDER 决定起 jevos 还是只用 ollama/startlux）
 │   ├── stop.sh         # 按 pidfile 停；ss 可用时按端口回收
-│   ├── status.sh       # 一屏健康报告（含引擎与 ollama/startlux 连通性）
+│   ├── status.sh       # 一屏健康报告（含引擎与 ollama 9B/27B、startlux 9B/27B 连通性）
+│   ├── ollama-gpu.sh   # ollama 容器 GPU 配置：跨卡分摊 + 9B/27B 常驻（apply/status）
 │   ├── startlux-llama.sh  # 起 llama-server（9B/27B GGUF，默认 8018）
 │   ├── startlux-serve.sh  # 起 StartLux decision API（默认 8081，llama-server 在 8018）
 │   ├── startlux-both.sh   # 9B(8018→8081) + 27B(8019→8082) 同时常驻
 │   └── switch-provider.sh  # 改 deploy.env 的 AI_PROVIDER 并重启
 ├── docs/DEPLOY.md      # 本文
 ├── pages/api/jevos/    # 同源代理：/move、/health（支持 ?provider=）
-├── lib/                # engine.ts（jevos/ollama 解析与客户端）、prompt、游戏引擎
+├── lib/                # engine.ts（jevos/ollama/ollama27b/startlux*/startlux27b 解析与客户端）、prompt、游戏引擎
 └── .jevos/             # 默认 data dir（已 gitignore）
     ├── jev/
     │   ├── jev         # 可执行文件

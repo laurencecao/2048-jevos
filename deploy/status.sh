@@ -13,6 +13,8 @@ WEB_PORT="${WEB_PORT:-3000}"; JEVOS_PORT="${JEVOS_PORT:-8017}"
 AI_PROVIDER="${AI_PROVIDER:-jevos}"
 OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-clef-flash:9b}"
+OLLAMA27_URL="${OLLAMA27_URL:-http://127.0.0.1:11434}"
+OLLAMA27_MODEL="${OLLAMA27_MODEL:-clef:27b}"
 STARTLUX_URL="${STARTLUX_URL:-http://127.0.0.1:8081}"
 STARTLUX_MODEL="${STARTLUX_MODEL:-StartLux-Decision-v1.1-9B-Instant}"
 STARTLUX27_URL="${STARTLUX27_URL:-http://127.0.0.1:8082}"
@@ -26,16 +28,18 @@ probe() { # name port path
   pid="$(cat "$DATA_DIR/$1.pid" 2>/dev/null || echo -)"
   echo "$1: http $code  pid $pid  port $2"
 }
-if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ]; then
+if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "ollama27b" ] || [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ]; then
   echo "jevos: not started (provider=$AI_PROVIDER)"
 else
   probe jevos "$JEVOS_PORT" /health
 fi
 probe web "$WEB_PORT" /
 echo "engine: $AI_PROVIDER"
-if [ "$AI_PROVIDER" = "ollama" ]; then
+if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "ollama27b" ]; then
   code="$(curl -s -o /dev/null -w '%{http_code}' -m 3 "$OLLAMA_URL/api/version" || true)"
-  echo "ollama: http $code  model $OLLAMA_MODEL  url $OLLAMA_URL"
+  code27="$(curl -s -o /dev/null -w '%{http_code}' -m 3 "$OLLAMA27_URL/api/version" || true)"
+  echo "ollama:      http $code    model $OLLAMA_MODEL   url $OLLAMA_URL"
+  echo "ollama27b:   http $code27  model $OLLAMA27_MODEL  url $OLLAMA27_URL"
 elif [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ]; then
   code="$(curl -s -o /dev/null -w '%{http_code}' -m 3 "$STARTLUX_URL/health" || true)"
   code27="$(curl -s -o /dev/null -w '%{http_code}' -m 3 "$STARTLUX27_URL/health" || true)"
