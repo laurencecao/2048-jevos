@@ -227,6 +227,7 @@ JEV_API_MODEL=jev-latest                 # 可选，缺省 jev-latest
 # 只有对方路由不同才需要：
 # JEV_API_PATH=/v1/systemone
 # JEV_API_HEALTH_PATH=/health
+# JEV_API_PROXY=http://host:port    # 出口代理（该地区被 451 拦截时用）
 ```
 
 改完重启 Web（部署环境用 `bash deploy/start.sh`）。密钥**只从 `.env` 读，不写进代码、
@@ -379,6 +380,7 @@ npm run lint                            # No ESLint warnings or errors
 | `JEV_API_MODEL`           | `jev-latest`             | 云端请求里的 model 名                                                   |
 | `JEV_API_PATH`            | `/v1/systemone`          | 决策路由（仅当对方挂载点不同）                                          |
 | `JEV_API_HEALTH_PATH`     | `/health`                | 健康检查路由（仅当对方挂载点不同）                                      |
+| `JEV_API_PROXY`           | 空（回退 `HTTPS_PROXY`） | 出口代理；被 HTTP 451 区域拦截时必填                                    |
 | `JEVOS_URL`               | `http://127.0.0.1:8017`  | jevos 地址                                                              |
 | `JEVOS_MODEL`             | `jev-latest`             | 请求里的 model 名                                                       |
 | `OLLAMA_URL`              | `http://127.0.0.1:11434` | ollama 地址                                                             |

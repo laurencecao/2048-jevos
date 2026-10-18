@@ -337,6 +337,8 @@ JEV_API_MODEL="jev-latest"              # 可选
 # 仅当对方路由不同：
 # JEV_API_PATH="/v1/systemone"
 # JEV_API_HEALTH_PATH="/health"
+# 出口代理（所在地区被 HTTP 451 拦截时必填）：
+# JEV_API_PROXY="http://host:port"
 ```
 
 改完重启 Web（`bash deploy/start.sh`，或 `bash deploy/switch-provider.sh jevapi`）。
@@ -367,6 +369,13 @@ curl -s -X POST http://127.0.0.1:3000/api/jevos/move \
    `401/403` 则明确报「密钥被拒」，不会把坏密钥当成可用。
 4. **权限**：`deploy/install.sh` 生成 `deploy.env` 时，如果检测到 `JEV_API_KEY` 非空，
    会把文件权限设为 `600`。
+5. **区域封锁与代理**：`api.typesafe.ai` 对部分地区回 `HTTP 451`。Node 的全局 `fetch`
+   **不读** `HTTPS_PROXY`，所以 `JEV_API_PROXY` 由 `lib/engine.ts` 自己发 `CONNECT`
+   隧道（无额外依赖）；配置后 `/health` 与 `/move` 都走代理。`451` 会单独报
+   「blocked in this region」，而不是笼统的「未配置」。
+6. **`.env` 与 `start.sh` 的关系**：`start.sh` 只在 `deploy.env` **定义了** `JEV_API_*`
+   时才透传；否则不导出（空值会通过 `process.env` 抢先存在，而 Next **不会**用 `.env`
+   覆盖已存在的变量 ⇒ 页面永远显示「未配置」）。
 
 ---
 

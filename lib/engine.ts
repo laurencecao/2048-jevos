@@ -14,7 +14,16 @@
  * jevapi is the hosted Jev API. It speaks the same wire protocol, but its
  * base URL and bearer token have no sensible default, so both are left empty
  * on purpose: whoever runs the deployment supplies them in .env.
+ *
+ * A hosted endpoint may also be geo-fenced (api.typesafe.ai answers HTTP 451
+ * outside its allowed regions). Node's global fetch ignores HTTPS_PROXY, so
+ * the hosted engine honours JEV_API_PROXY and tunnels through it explicitly.
  */
+
+import http from "node:http";
+import https from "node:https";
+import net from "node:net";
+import tls from "node:tls";
 
 export type ProviderId =
   | "jevos"
@@ -154,6 +163,149 @@ function env(name: string): string | undefined {
   return value && value.trim() ? value.trim() : undefined;
 }
 
+type CloudResult = { status: number; ok: boolean; text: string; json: unknown };
+
+/** Egress proxy for the hosted engine. Node's fetch ignores these vars. */
+function jevApiProxy(): string | undefined {
+  return env("JEV_API_PROXY") || env("HTTPS_PROXY") || env("https_proxy");
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * An https.Agent that opens a CONNECT tunnel through an HTTP proxy and then
+ * runs TLS inside it. Kept dependency-free on purpose: the proxy is an
+ * optional deployment detail, not a runtime requirement of the app.
+ */
+function tunnelAgent(proxy: string): https.Agent {
+  const url = new URL(proxy);
+  const proxyPort = Number(url.port) || (url.protocol === "https:" ? 443 : 80);
+  const agent = new https.Agent({ keepAlive: false }) as https.Agent & {
+    createConnection?: unknown;
+  };
+  agent.createConnection = (
+    options: { host?: string; port?: number | string; servername?: string },
+    callback: (error: Error | null, socket?: tls.TLSSocket) => void,
+  ) => {
+    const target = options.host + ":" + (Number(options.port) || 443);
+    const headers: Record<string, string> = { Host: target };
+    if (url.username || url.password) {
+      const credentials =
+        decodeURIComponent(url.username) +
+        ":" +
+        decodeURIComponent(url.password);
+      headers["Proxy-Authorization"] =
+        "Basic " + Buffer.from(credentials).toString("base64");
+    }
+    const connect = http.request({
+      host: url.hostname,
+      port: proxyPort,
+      method: "CONNECT",
+      path: target,
+      headers,
+    });
+    connect.once("connect", (response, socket) => {
+      if (response.statusCode !== 200) {
+        socket.destroy();
+        callback(
+          new Error("proxy CONNECT failed: HTTP " + response.statusCode),
+        );
+        return;
+      }
+      // SNI cannot carry an IP address; local/plain hosts omit it.
+      const servername = options.servername || options.host || "";
+      const secured = tls.connect({
+        socket,
+        servername: net.isIP(servername) ? undefined : servername,
+      });
+      secured.once("secureConnect", () => callback(null, secured));
+      secured.once("error", (error: Error) => callback(error));
+    });
+    connect.once("error", (error: Error) => callback(error));
+    connect.end();
+    return undefined;
+  };
+  return agent;
+}
+
+/**
+ * One HTTP call to the hosted API. Uses the plain global fetch unless an egress
+ * proxy is configured; then it tunnels through the proxy with node:https.
+ */
+async function cloudRequest(
+  url: string,
+  init: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+    timeoutMs: number;
+  },
+): Promise<CloudResult> {
+  const target = new URL(url);
+  // Plain-HTTP endpoints (local test servers, dev gateways) never need the
+  // egress proxy; it exists for geo-fenced HTTPS hosts.
+  const proxy = target.protocol === "https:" ? jevApiProxy() : undefined;
+  if (!proxy) {
+    const response = await fetch(url, {
+      method: init.method || "GET",
+      headers: init.headers,
+      body: init.body,
+      cache: "no-store",
+      signal: AbortSignal.timeout(init.timeoutMs),
+    });
+    const text = await response.text().catch(() => "");
+    return {
+      status: response.status,
+      ok: response.ok,
+      text,
+      json: parseJson(text),
+    };
+  }
+
+  return await new Promise<CloudResult>((resolve, reject) => {
+    const headers: Record<string, string> = { ...(init.headers || {}) };
+    if (init.body)
+      headers["Content-Length"] = String(Buffer.byteLength(init.body));
+    const request = https.request(
+      {
+        host: target.hostname,
+        port: Number(target.port) || 443,
+        path: target.pathname + target.search,
+        method: init.method || "GET",
+        headers,
+        agent: tunnelAgent(proxy),
+        timeout: init.timeoutMs,
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.on("end", () => {
+          const text = Buffer.concat(chunks).toString("utf8");
+          const status = response.statusCode || 0;
+          resolve({
+            status,
+            ok: status >= 200 && status < 300,
+            text,
+            json: parseJson(text),
+          });
+        });
+      },
+    );
+    request.on("timeout", () => {
+      request.destroy(new Error("timed out after " + init.timeoutMs + " ms"));
+    });
+    request.on("error", (error: Error) => reject(error));
+    if (init.body) request.write(init.body);
+    request.end();
+  });
+}
+
 export function isProviderId(value: unknown): value is ProviderId {
   return (
     value === "jevos" ||
@@ -261,25 +413,29 @@ export async function engineHealth(provider?: unknown): Promise<EngineHealth> {
 
       // Hosted APIs rarely expose /health. Probe it when present, but treat
       // 404/405 as "the host answered, there is just no health route".
-      const response = await fetch(
+      const probe = await cloudRequest(
         engine.endpoint + (env("JEV_API_HEALTH_PATH") || "/health"),
-        {
-          cache: "no-store",
-          headers: authHeaders("jevapi"),
-          signal: AbortSignal.timeout(8000),
-        },
+        { headers: authHeaders("jevapi"), timeoutMs: 8000 },
       );
       const latencyMs = Date.now() - started;
 
-      if (response.status === 401 || response.status === 403) {
+      if (probe.status === 451) {
         return failure(
           engine,
           started,
-          "JEV_API_KEY was rejected (HTTP " + response.status + ")",
+          "blocked in this region (HTTP 451)",
+          "Set JEV_API_PROXY=http://host:port (.env) so this host can egress elsewhere, or point JEV_API_URL at a reachable gateway",
+        );
+      }
+      if (probe.status === 401 || probe.status === 403) {
+        return failure(
+          engine,
+          started,
+          "JEV_API_KEY was rejected (HTTP " + probe.status + ")",
           "Check JEV_API_KEY in .env",
         );
       }
-      if (response.status === 404 || response.status === 405) {
+      if (probe.status === 404 || probe.status === 405) {
         return {
           ok: true,
           provider: engine.id,
@@ -290,14 +446,11 @@ export async function engineHealth(provider?: unknown): Promise<EngineHealth> {
           model: engine.model,
         };
       }
-      if (!response.ok) {
-        return failure(engine, started, "HTTP " + response.status);
+      if (!probe.ok) {
+        return failure(engine, started, "HTTP " + probe.status);
       }
 
-      const json = (await response.json().catch(() => null)) as {
-        model?: string;
-        status?: string;
-      } | null;
+      const json = probe.json as { model?: string; status?: string } | null;
       return {
         ok: true,
         provider: engine.id,
@@ -450,18 +603,38 @@ export async function askEngine(
           ? 120000
           : 30000;
 
-  let response: Response;
+  let result: CloudResult;
   try {
-    response = await fetch(engine.endpoint + decisionPath(engine.id), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...authHeaders(engine.id),
-      },
-      body: JSON.stringify(body),
-      cache: "no-store",
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    const endpoint = engine.endpoint + decisionPath(engine.id);
+    const headers = {
+      "Content-Type": "application/json",
+      ...authHeaders(engine.id),
+    };
+    const payload = JSON.stringify(body);
+    result =
+      engine.id === "jevapi"
+        ? await cloudRequest(endpoint, {
+            method: "POST",
+            headers,
+            body: payload,
+            timeoutMs,
+          })
+        : await (async () => {
+            const response = await fetch(endpoint, {
+              method: "POST",
+              headers,
+              body: payload,
+              cache: "no-store",
+              signal: AbortSignal.timeout(timeoutMs),
+            });
+            const text = await response.text().catch(() => "");
+            return {
+              status: response.status,
+              ok: response.ok,
+              text,
+              json: parseJson(text),
+            };
+          })();
   } catch (error) {
     throw new Error(
       "cannot reach " +
@@ -474,17 +647,22 @@ export async function askEngine(
     );
   }
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
+  if (result.status === 451) {
+    throw new Error(
+      engine.label +
+        " is blocked in this region (HTTP 451) - set JEV_API_PROXY in .env or use a reachable gateway",
+    );
+  }
+  if (!result.ok) {
     throw new Error(
       engine.label +
         " returned HTTP " +
-        response.status +
-        (text ? ": " + text.slice(0, 300) : ""),
+        result.status +
+        (result.text ? ": " + result.text.slice(0, 300) : ""),
     );
   }
 
-  const json = (await response.json()) as SystemOneResponse;
+  const json = result.json as SystemOneResponse;
   return {
     json,
     latencyMs: Date.now() - started,

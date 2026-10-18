@@ -21,11 +21,14 @@ STARTLUX_URL="${STARTLUX_URL:-http://127.0.0.1:8081}"
 STARTLUX_MODEL="${STARTLUX_MODEL:-StartLux-Decision-v1.1-9B-Instant}"
 STARTLUX27_URL="${STARTLUX27_URL:-http://127.0.0.1:8082}"
 STARTLUX27_MODEL="${STARTLUX27_MODEL:-StartLux-Decision-v1.1-27B-Instant}"
-JEV_API_URL="${JEV_API_URL:-}"
-JEV_API_KEY="${JEV_API_KEY:-}"
-JEV_API_MODEL="${JEV_API_MODEL:-jev-latest}"
-JEV_API_PATH="${JEV_API_PATH:-}"
-JEV_API_HEALTH_PATH="${JEV_API_HEALTH_PATH:-}"
+# Hosted-API settings are passed through ONLY when deploy.env defines them.
+# Passing an empty JEV_API_URL would be exported into the next process, and
+# Next.js never overrides an env var that already exists - the values the
+# operator put in .env would be silently shadowed by empty strings.
+JEV_ENV=()
+for _v in JEV_API_URL JEV_API_KEY JEV_API_MODEL JEV_API_PATH JEV_API_HEALTH_PATH JEV_API_PROXY; do
+  [ -n "${!_v:-}" ] && JEV_ENV+=("$_v=${!_v}")
+done
 LOGS="$DATA_DIR/logs"; mkdir -p "$LOGS"
 
 log() { printf '\033[1;36m[start]\033[0m %s\n' "$*"; }
@@ -61,16 +64,15 @@ else
   [ -f "$REPO_DIR/.next/BUILD_ID" ] || { echo "web not built; run: npm run build" >&2; exit 1; }
   log "starting web (port=$WEB_PORT)"
   # call the next binary directly: keeps the PID stable for stop.sh
-  ( cd "$REPO_DIR" && AI_PROVIDER="$AI_PROVIDER" \
+  ( cd "$REPO_DIR" && exec env \
+      AI_PROVIDER="$AI_PROVIDER" \
       OLLAMA_URL="$OLLAMA_URL" OLLAMA_MODEL="$OLLAMA_MODEL" \
       OLLAMA27_URL="$OLLAMA27_URL" OLLAMA27_MODEL="$OLLAMA27_MODEL" \
       STARTLUX_URL="$STARTLUX_URL" STARTLUX_MODEL="$STARTLUX_MODEL" \
       STARTLUX27_URL="$STARTLUX27_URL" STARTLUX27_MODEL="$STARTLUX27_MODEL" \
-      JEV_API_URL="$JEV_API_URL" JEV_API_KEY="$JEV_API_KEY" \
-      JEV_API_MODEL="$JEV_API_MODEL" JEV_API_PATH="$JEV_API_PATH" \
-      JEV_API_HEALTH_PATH="$JEV_API_HEALTH_PATH" \
+      "${JEV_ENV[@]}" \
       JEVOS_URL="http://127.0.0.1:$JEVOS_PORT" \
-      exec nohup node node_modules/next/dist/bin/next start -p "$WEB_PORT" \
+      nohup node node_modules/next/dist/bin/next start -p "$WEB_PORT" \
       > "$LOGS/web.log" 2>&1 < /dev/null ) &
   echo $! > "$DATA_DIR/web.pid"
   wait_healthy "http://127.0.0.1:$WEB_PORT/" 90 \
@@ -86,10 +88,10 @@ elif [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ]; then
   startlux27_ok="$(curl -fsS -m 3 "$STARTLUX27_URL/health" >/dev/null 2>&1 && echo yes || echo no)"
   log "ready: http://127.0.0.1:$WEB_PORT/  (engines: startlux 9B $STARTLUX_MODEL at $STARTLUX_URL reachable=$startlux_ok | startlux27b $STARTLUX27_MODEL at $STARTLUX27_URL reachable=$startlux27_ok)"
 elif [ "$AI_PROVIDER" = "jevapi" ]; then
-  if [ -n "$JEV_API_URL" ] && [ -n "$JEV_API_KEY" ]; then
-    log "ready: http://127.0.0.1:$WEB_PORT/  (engine=jevapi at $JEV_API_URL model=$JEV_API_MODEL, key set)"
+  if [ -n "${JEV_API_URL:-}" ] && [ -n "${JEV_API_KEY:-}" ]; then
+    log "ready: http://127.0.0.1:$WEB_PORT/  (engine=jevapi at $JEV_API_URL model=${JEV_API_MODEL:-jev-latest}, key set)"
   else
-    log "ready: http://127.0.0.1:$WEB_PORT/  (engine=jevapi NOT configured: set JEV_API_URL and JEV_API_KEY in $DATA_DIR/deploy.env)"
+    log "ready: http://127.0.0.1:$WEB_PORT/  (engine=jevapi: no JEV_API_* in $DATA_DIR/deploy.env — the app reads them from .env, check the engine card)"
   fi
 else
   log "ready: http://127.0.0.1:$WEB_PORT/  (engine=jevos on :$JEVOS_PORT)"
