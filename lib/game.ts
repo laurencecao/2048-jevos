@@ -228,6 +228,70 @@ export function rankMoves(board: Board): RankedMove[] {
     .sort((a, b) => b.score - a.score);
 }
 
+/** A two-move plan: the first move is played now, the second is the best
+ * follow-up found on the resulting board (the spawn is not simulated). */
+export type Plan = {
+  id: string;
+  first: Dir;
+  second: Dir | null;
+  firstResult: MoveResult;
+  result: MoveResult;
+  score: number;
+};
+
+export function planId(first: Dir, second: Dir | null): string {
+  return second ? first + "+" + second : first;
+}
+
+/**
+ * Enumerate first move x follow-up, then interleave the groups so the list
+ * still covers every legal first move before doubling up on one of them.
+ * At most 16 plans exist, so this stays cheap.
+ */
+export function rankPlans(board: Board, limit = 8): Plan[] {
+  const groups: Plan[][] = rankMoves(board).map((first) => {
+    const seconds = legalMoves(first.result.board);
+    const plans: Plan[] = seconds.map((second) => {
+      const result = simulate(first.result.board, second.dir);
+      return {
+        id: planId(first.dir, second.dir),
+        first: first.dir,
+        second: second.dir,
+        firstResult: first.result,
+        result,
+        score: evaluate(result.board) + 0.25 * evaluate(first.result.board),
+      };
+    });
+    if (plans.length === 0) {
+      plans.push({
+        id: planId(first.dir, null),
+        first: first.dir,
+        second: null,
+        firstResult: first.result,
+        result: first.result,
+        score: evaluate(first.result.board),
+      });
+    }
+    return plans.sort((a, b) => b.score - a.score);
+  });
+
+  const picked: Plan[] = [];
+  let round = 0;
+  while (picked.length < limit) {
+    let added = false;
+    for (const group of groups) {
+      if (round >= group.length) continue;
+      picked.push(group[round]);
+      added = true;
+      if (picked.length === limit) break;
+    }
+    if (!added) break;
+    round += 1;
+  }
+
+  return picked.sort((a, b) => b.score - a.score);
+}
+
 export function boardToCompact(board: Board): string {
   return board.map((row) => row.join(" ")).join(" / ");
 }

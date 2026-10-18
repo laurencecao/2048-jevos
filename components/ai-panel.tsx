@@ -5,7 +5,12 @@ import { DIR_ARROW, DIR_LABEL, type Dir } from "@/lib/game";
 import { MODE_LABEL } from "@/lib/prompt";
 import styles from "@/styles/ai-panel.module.css";
 
-const MODES: AiMode[] = ["assisted", "hinted", "pure"];
+const MODES: AiMode[] = ["assisted", "hinted", "wide", "pure"];
+
+function planLabel(plan: string): string {
+  const parts = plan.split("+");
+  return parts.map((dir) => DIR_LABEL[dir as Dir] ?? dir).join(" → ");
+}
 
 const ENGINE_FALLBACK: {
   id: EngineProvider;
@@ -68,7 +73,7 @@ export default function AiPanel() {
   const cell = (dir: Dir) => {
     const probability = last?.probabilities?.[dir] ?? 0;
     const legal = last ? last.legal.includes(dir) : true;
-    const offered = last ? last.candidates.includes(dir) : true;
+    const offered = last ? last.candidateDirs.includes(dir) : true;
     const activeCell = last?.dir === dir;
     return (
       <div
@@ -216,7 +221,10 @@ export default function AiPanel() {
             {last
               ? `${fmtMs(last.latencyMs)} · ${last.tokens || 0} tok · ${
                   last.candidates.length
-                } 个候选`
+                } 个候选` +
+                (last.plan && last.plan.includes("+")
+                  ? ` · 计划 ${planLabel(last.plan)}`
+                  : "")
               : "点「让 AI 开始」，或先手动玩几步再让它接手"}
           </div>
           {last?.skipped && (

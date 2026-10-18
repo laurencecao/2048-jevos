@@ -18,7 +18,7 @@ import {
 } from "@/lib/game";
 import { GameContext } from "./game-context";
 
-export type AiMode = "pure" | "hinted" | "assisted";
+export type AiMode = "pure" | "hinted" | "assisted" | "wide";
 
 /** Mirrors lib/engine.ts; kept local so the client bundle never imports the
  * server-side fetch helpers. */
@@ -60,7 +60,11 @@ export type Decision = {
   skipped: boolean;
   fallback: boolean;
   legal: Dir[];
-  candidates: Dir[];
+  /** Candidate ids ("left" or "left+up"), one per thing the model could pick. */
+  candidates: string[];
+  /** Directions that own at least one candidate, for the dpad. */
+  candidateDirs: Dir[];
+  plan?: string;
   outlook: Outlook | null;
   prompt: PromptView | null;
   at: number;
@@ -364,6 +368,8 @@ export default function AiProvider({ children }: PropsWithChildren) {
         fallback: Boolean(data.fallback),
         legal: data.legal || [],
         candidates: data.candidates || [],
+        candidateDirs: data.candidateDirs || data.candidates || [],
+        plan: typeof data.move.plan === "string" ? data.move.plan : undefined,
         outlook: data.outlook || null,
         prompt: data.prompt || null,
         at: Date.now(),

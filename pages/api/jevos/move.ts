@@ -6,9 +6,9 @@ import {
   isProviderId,
   resolveEngine,
 } from "@/lib/engine";
-import { buildMovePrompt, type Mode } from "@/lib/prompt";
+import { buildMovePrompt, type Mode, type MoveCandidate } from "@/lib/prompt";
 
-const MODES: Mode[] = ["pure", "hinted", "assisted"];
+const MODES: Mode[] = ["pure", "hinted", "assisted", "wide"];
 const DIRECTIONS: Dir[] = ["up", "down", "left", "right"];
 
 function asDir(value: unknown): Dir | null {
@@ -19,6 +19,32 @@ function asDir(value: unknown): Dir | null {
 
 function numberOr(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function firstDirs(candidates: MoveCandidate[]): Dir[] {
+  return Array.from(new Set(candidates.map((candidate) => candidate.dir)));
+}
+
+function probabilityOf(
+  probabilities: Record<string, number>,
+  id: string,
+): number {
+  const value = probabilities[id];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+/** Sum per-candidate probabilities into one number per direction, so the
+ * 4-cell dpad stays meaningful when a candidate is a two-move plan. */
+function byDirection(
+  probabilities: Record<string, number>,
+  candidates: MoveCandidate[],
+): Record<string, number> {
+  const summed: Record<string, number> = {};
+  for (const candidate of candidates) {
+    summed[candidate.dir] =
+      (summed[candidate.dir] ?? 0) + probabilityOf(probabilities, candidate.id);
+  }
+  return summed;
 }
 
 export default async function handler(
@@ -77,25 +103,34 @@ export default async function handler(
       .json({ error: "no legal move left after exclusions" });
   }
 
+  const candidateIds = prompt.candidates.map((candidate) => candidate.id);
+  const dirs = firstDirs(prompt.candidates);
+
   const publicPrompt = {
     state: prompt.state,
     instructions: prompt.instructions,
     criteria: prompt.criteria,
   };
 
-  // A single legal move needs no model call; report it honestly.
-  if (prompt.candidates.length === 1) {
-    const dir = prompt.candidates[0];
+  // A single direction needs no model call; report it honestly.
+  if (dirs.length === 1) {
     return response.status(200).json({
       gameOver: false,
       skipped: true,
       fallback: false,
       model: engine.model + " (not called: one legal move)",
       engine: engineView,
-      move: { choice: dir, probabilities: { [dir]: 1 }, confidence: 1 },
+      move: {
+        choice: dirs[0],
+        plan: dirs[0],
+        probabilities: { [dirs[0]]: 1 },
+        confidence: 1,
+      },
       outlook: null,
       legal: prompt.legal,
-      candidates: prompt.candidates,
+      candidates: candidateIds,
+      candidateDirs: dirs,
+      plans: [],
       prompt: publicPrompt,
       latencyMs: 0,
       usage: null,
@@ -127,14 +162,36 @@ export default async function handler(
         ? (moveAnswer.probabilities as Record<string, number>)
         : {};
 
-    let choice = moveAnswer.choice as Dir;
+    // The model may answer with a candidate id ("left+up"), a bare direction
+    // ("left"), or something unknown. Resolve in that order and flag the
+    // fallback instead of silently playing an unrequested move.
+    const answer = moveAnswer.choice;
+    let chosen =
+      prompt.candidates.find((candidate) => candidate.id === answer) ?? null;
     let fallback = false;
-    if (!prompt.candidates.includes(choice)) {
-      const ranked = Object.entries(probabilities)
-        .filter(([dir]) => prompt.candidates.includes(dir as Dir))
-        .sort((a, b) => Number(b[1]) - Number(a[1]));
-      choice = (ranked[0]?.[0] as Dir) || prompt.candidates[0];
+
+    if (!chosen) {
+      const sameDirection = prompt.candidates.filter(
+        (candidate) => candidate.dir === answer,
+      );
+      if (sameDirection.length > 0) {
+        chosen = sameDirection.sort(
+          (a, b) =>
+            probabilityOf(probabilities, b.id) -
+            probabilityOf(probabilities, a.id),
+        )[0];
+      }
+    }
+
+    if (!chosen) {
       fallback = true;
+      chosen = prompt.candidates
+        .slice()
+        .sort(
+          (a, b) =>
+            probabilityOf(probabilities, b.id) -
+            probabilityOf(probabilities, a.id),
+        )[0];
     }
 
     const outlookAnswer = json.answers && json.answers.outlook;
@@ -163,14 +220,21 @@ export default async function handler(
       model: json.model || engine.model,
       engine: { ...engineView, model: json.model || engine.model },
       move: {
-        choice,
-        probabilities,
+        choice: chosen.dir,
+        plan: chosen.id,
+        probabilities: byDirection(probabilities, prompt.candidates),
         confidence:
           typeof moveAnswer.confidence === "number" ? moveAnswer.confidence : 0,
       },
+      plans: prompt.candidates.map((candidate) => ({
+        id: candidate.id,
+        dir: candidate.dir,
+        probability: probabilityOf(probabilities, candidate.id),
+      })),
       outlook,
       legal: prompt.legal,
-      candidates: prompt.candidates,
+      candidates: candidateIds,
+      candidateDirs: dirs,
       prompt: publicPrompt,
       latencyMs,
       usage: json.usage || null,

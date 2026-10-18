@@ -3,6 +3,7 @@ import {
   emptyBoard,
   isBoard,
   legalMoves,
+  rankPlans,
   simulate,
 } from "@/lib/game";
 import { buildMovePrompt } from "@/lib/prompt";
@@ -66,9 +67,72 @@ describe("2048 engine", () => {
     expect(prompt.legal.length).toBeGreaterThanOrEqual(
       prompt.candidates.length,
     );
-    expect(Object.keys(prompt.criteria).sort()).toEqual(
-      [...prompt.candidates].sort(),
+    expect(prompt.candidates.map((candidate) => candidate.id).sort()).toEqual(
+      Object.keys(prompt.criteria).sort(),
     );
+    for (const candidate of prompt.candidates) {
+      expect(prompt.legal).toContain(candidate.dir);
+    }
+  });
+
+  it("offers eight distinct two-move plans in wide mode", () => {
+    const board = [
+      [2, 2, 4, 4],
+      [8, 16, 32, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ];
+    const prompt = buildMovePrompt(board, 0, 0, "wide");
+    const ids = prompt.candidates.map((candidate) => candidate.id);
+
+    expect(prompt.candidates.length).toBeGreaterThan(4);
+    expect(prompt.candidates.length).toBeLessThanOrEqual(8);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.some((id) => id.includes("+"))).toBe(true);
+    expect(ids.sort()).toEqual(Object.keys(prompt.criteria).sort());
+    expect(
+      new Set(prompt.candidates.map((candidate) => candidate.dir)).size,
+    ).toBeGreaterThan(1);
+    for (const candidate of prompt.candidates) {
+      expect(prompt.legal).toContain(candidate.dir);
+    }
+  });
+
+  it("drops excluded first moves from wide mode", () => {
+    const board = [
+      [2, 2, 4, 4],
+      [8, 16, 32, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ];
+    const before = buildMovePrompt(board, 0, 0, "wide");
+    const excluded = before.candidates[0].dir;
+    const after = buildMovePrompt(board, 0, 0, "wide", [excluded]);
+
+    expect(after.candidates.length).toBeGreaterThan(0);
+    for (const candidate of after.candidates) {
+      expect(candidate.dir).not.toBe(excluded);
+    }
+  });
+
+  it("ranks at most eight plans without repeating a plan id", () => {
+    const board = [
+      [2, 2, 4, 4],
+      [8, 16, 32, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ];
+    const plans = rankPlans(board, 8);
+    expect(plans.length).toBeLessThanOrEqual(8);
+    expect(new Set(plans.map((plan) => plan.id)).size).toBe(plans.length);
+    for (const plan of plans) {
+      expect(legalMoves(board).map((move) => move.dir)).toContain(plan.first);
+      if (plan.second) {
+        expect(
+          legalMoves(plan.firstResult.board).map((move) => move.dir),
+        ).toContain(plan.second);
+      }
+    }
   });
 
   it("rejects malformed boards", () => {
