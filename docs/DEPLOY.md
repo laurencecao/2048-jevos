@@ -169,8 +169,10 @@ curl -s -X POST http://127.0.0.1:3000/api/jevos/move \
 
 **GPU 分摊（关键）**
 
-stock ollama 会优先把模型塞进一张卡（实测它起的 llama-server 参数是
-`--split-mode none --main-gpu 0`），放不下就退回 CPU。用脚本把容器重建成跨卡模式：
+stock ollama 会优先把能塞下的模型放在一张卡上（实测 9B 的 llama-server 参数是
+`--split-mode none --main-gpu 0`，已占用 GPU 0 的 13 GB）；27B 单卡放不下，必须跨卡，
+而 9B 常驻后每张卡的余量都不宽裕。显式打开 spread 并把并发降到 1，两个模型才稳。用脚本
+把容器重建成跨卡模式：
 
 ```bash
 bash deploy/ollama-gpu.sh status    # 当前 env / 显存 / 已拉取模型

@@ -127,8 +127,9 @@ bash deploy/switch-provider.sh ollama27b      # 改服务端默认引擎并重�
 ```
 
 **为什么要单独配 GPU**：`clef:27b` 是 27B Q4_K_M，权重约 18 GB，而本机 4×A2 **单卡只有 15.3 GB**。
-ollama 默认会尽量塞进一张卡（实测它起的 llama-server 是 `--split-mode none --main-gpu 0`），
-塞不下就退回 CPU，速度会差一个量级。用仓库里的脚本把容器重建成「四卡分摊 + 两个模型常驻」：
+ollama 默认会把能塞进一张卡的模型都放一张卡（实测 9B 的 llama-server 是
+`--split-mode none --main-gpu 0`，已经占掉 GPU 0 的 13 GB），27B 放不下时必须跨卡，
+余量很紧。用仓库里的脚本把容器重建成「四卡分摊 + 两个模型常驻」：
 
 ```bash
 bash deploy/ollama-gpu.sh status    # 看容器 env、显存、已拉取的模型
