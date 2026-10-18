@@ -19,6 +19,9 @@ STARTLUX_URL="${STARTLUX_URL:-http://127.0.0.1:8081}"
 STARTLUX_MODEL="${STARTLUX_MODEL:-StartLux-Decision-v1.1-9B-Instant}"
 STARTLUX27_URL="${STARTLUX27_URL:-http://127.0.0.1:8082}"
 STARTLUX27_MODEL="${STARTLUX27_MODEL:-StartLux-Decision-v1.1-27B-Instant}"
+JEV_API_URL="${JEV_API_URL:-}"
+JEV_API_KEY="${JEV_API_KEY:-}"
+JEV_API_MODEL="${JEV_API_MODEL:-jev-latest}"
 
 echo "repo:  $REPO_DIR"
 echo "data:  $DATA_DIR"
@@ -28,7 +31,7 @@ probe() { # name port path
   pid="$(cat "$DATA_DIR/$1.pid" 2>/dev/null || echo -)"
   echo "$1: http $code  pid $pid  port $2"
 }
-if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "ollama27b" ] || [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ]; then
+if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "ollama27b" ] || [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ] || [ "$AI_PROVIDER" = "jevapi" ]; then
   echo "jevos: not started (provider=$AI_PROVIDER)"
 else
   probe jevos "$JEVOS_PORT" /health
@@ -45,6 +48,13 @@ elif [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ]; then
   code27="$(curl -s -o /dev/null -w '%{http_code}' -m 3 "$STARTLUX27_URL/health" || true)"
   echo "startlux:     http $code    model $STARTLUX_MODEL    url $STARTLUX_URL"
   echo "startlux27b:  http $code27  model $STARTLUX27_MODEL  url $STARTLUX27_URL"
+elif [ "$AI_PROVIDER" = "jevapi" ]; then
+  if [ -n "$JEV_API_URL" ] && [ -n "$JEV_API_KEY" ]; then
+    code="$(curl -s -o /dev/null -w '%{http_code}' -m 5 -H "Authorization: Bearer $JEV_API_KEY" "$JEV_API_URL/health" || true)"
+    echo "jevapi:       http $code    model $JEV_API_MODEL    url $JEV_API_URL  key set"
+  else
+    echo "jevapi:       not configured (set JEV_API_URL and JEV_API_KEY in $DATA_DIR/deploy.env)"
+  fi
 else
   health="$(curl -fsS -m 3 "http://127.0.0.1:$JEVOS_PORT/health" 2>/dev/null || true)"
   if [ -n "$health" ]; then

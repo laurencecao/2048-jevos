@@ -17,6 +17,11 @@ const KEYS = [
   "STARTLUX_MODEL",
   "STARTLUX27_URL",
   "STARTLUX27_MODEL",
+  "JEV_API_URL",
+  "JEV_API_KEY",
+  "JEV_API_MODEL",
+  "JEV_API_PATH",
+  "JEV_API_HEALTH_PATH",
 ] as const;
 
 const saved: Record<string, string | undefined> = {};
@@ -36,12 +41,13 @@ afterEach(() => {
 });
 
 describe("provider resolution", () => {
-  it("accepts only the five supported engines", () => {
+  it("accepts only the six supported engines", () => {
     expect(isProviderId("jevos")).toBe(true);
     expect(isProviderId("ollama")).toBe(true);
     expect(isProviderId("ollama27b")).toBe(true);
     expect(isProviderId("startlux")).toBe(true);
     expect(isProviderId("startlux27b")).toBe(true);
+    expect(isProviderId("jevapi")).toBe(true);
     expect(isProviderId("openai")).toBe(false);
     expect(isProviderId(undefined)).toBe(false);
   });
@@ -131,7 +137,32 @@ describe("provider resolution", () => {
     expect(resolveEngine(undefined).id).toBe("ollama");
   });
 
-  it("lists all five engines", () => {
+  it("keeps jev-api unconfigured until the operator supplies .env values", () => {
+    const engine = resolveEngine("jevapi");
+    expect(engine.endpoint).toBe("");
+    expect(engine.model).toBe("jev-latest");
+    expect(engine.transport).toBe("cloud");
+    expect(engine.hint).toContain("JEV_API_URL");
+    // The key is read per request, never stored on the engine descriptor.
+    expect("apiKey" in engine).toBe(false);
+  });
+
+  it("honours JEV_API_URL / JEV_API_KEY / JEV_API_MODEL", () => {
+    process.env.JEV_API_URL = "https://api.example.com/";
+    process.env.JEV_API_KEY = "secret-key";
+    process.env.JEV_API_MODEL = "jev-test";
+
+    const engine = resolveEngine("jevapi");
+    expect(engine.endpoint).toBe("https://api.example.com");
+    expect(engine.model).toBe("jev-test");
+    expect(engine.transport).toBe("cloud");
+
+    // The other engines must not pick up the hosted API settings.
+    expect(resolveEngine("jevos").endpoint).toBe("http://127.0.0.1:8017");
+    expect(resolveEngine("jevos").model).toBe("jev-latest");
+  });
+
+  it("lists all six engines", () => {
     const engines = engineList();
     expect(engines.map((engine) => engine.id)).toEqual([
       "jevos",
@@ -139,6 +170,7 @@ describe("provider resolution", () => {
       "ollama27b",
       "startlux",
       "startlux27b",
+      "jevapi",
     ]);
   });
 });

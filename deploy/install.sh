@@ -9,7 +9,8 @@
 #   --port PORT         web port (default: 3000)
 #   --jevos-port PORT   jevos port (default: 8017)
 #   --threads N         jevos CPU threads (default: 4)
-#   --provider NAME       default engine: jevos | ollama | ollama27b | startlux | startlux27b (default: jevos)
+#   --provider NAME       default engine: jevos | ollama | ollama27b | startlux | startlux27b | jevapi (default: jevos)
+#                         jevapi needs JEV_API_URL + JEV_API_KEY in the environment (see .env.example)
 #   --ollama-url URL      ollama base URL (default: http://127.0.0.1:11434)
 #   --ollama-model ID     ollama 9B decision model (default: clef-flash:9b)
 #   --ollama27-url URL    ollama base URL for the 27B engine (default: http://127.0.0.1:11434)
@@ -44,6 +45,12 @@ STARTLUX_URL="${STARTLUX_URL:-http://127.0.0.1:8081}"
 STARTLUX_MODEL="${STARTLUX_MODEL:-StartLux-Decision-v1.1-9B-Instant}"
 STARTLUX27_URL="${STARTLUX27_URL:-http://127.0.0.1:8082}"
 STARTLUX27_MODEL="${STARTLUX27_MODEL:-StartLux-Decision-v1.1-27B-Instant}"
+# Hosted jev API: no defaults on purpose; the operator supplies URL and key.
+JEV_API_URL="${JEV_API_URL:-}"
+JEV_API_KEY="${JEV_API_KEY:-}"
+JEV_API_MODEL="${JEV_API_MODEL:-jev-latest}"
+JEV_API_PATH="${JEV_API_PATH:-}"
+JEV_API_HEALTH_PATH="${JEV_API_HEALTH_PATH:-}"
 ASSETS_DIR=""
 DO_START=1
 SKIP_NPM=0
@@ -78,9 +85,21 @@ while [ $# -gt 0 ]; do
 done
 
 case "$AI_PROVIDER" in
-  jevos|ollama|ollama27b|startlux|startlux27b) ;;
-  *) echo "unknown provider: $AI_PROVIDER (use jevos, ollama, ollama27b, startlux or startlux27b)" >&2; exit 2 ;;
+  jevos|ollama|ollama27b|startlux|startlux27b|jevapi) ;;
+  *) echo "unknown provider: $AI_PROVIDER (use jevos, ollama, ollama27b, startlux, startlux27b or jevapi)" >&2; exit 2 ;;
 esac
+
+# Re-installing must not wipe the operator's hosted-API credentials. Pull the
+# jevapi lines from the previous deploy.env when they are not in the env.
+read_env() { grep -E "^$1=" "$DATA_DIR/deploy.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'; }
+if [ -f "$DATA_DIR/deploy.env" ]; then
+  [ -n "$JEV_API_URL" ] || JEV_API_URL="$(read_env JEV_API_URL)"
+  [ -n "$JEV_API_KEY" ] || JEV_API_KEY="$(read_env JEV_API_KEY)"
+  [ -n "$JEV_API_MODEL" ] || JEV_API_MODEL="$(read_env JEV_API_MODEL)"
+  [ -n "$JEV_API_PATH" ] || JEV_API_PATH="$(read_env JEV_API_PATH)"
+  [ -n "$JEV_API_HEALTH_PATH" ] || JEV_API_HEALTH_PATH="$(read_env JEV_API_HEALTH_PATH)"
+  JEV_API_MODEL="${JEV_API_MODEL:-jev-latest}"
+fi
 
 # stdout is reserved for machine-readable paths; all progress goes to stderr
 log() { printf '\033[1;36m[install]\033[0m %s\n' "$*" >&2; }
@@ -151,7 +170,7 @@ ensure_asset() { # name sha -> echoes verified path
 # ---------- 3. binary + model -------------------------------------------------
 JEVDIR="$DATA_DIR/jev"
 mkdir -p "$DATA_DIR"
-if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "ollama27b" ] || [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ]; then
+if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "ollama27b" ] || [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ] || [ "$AI_PROVIDER" = "jevapi" ]; then
   log "provider=$AI_PROVIDER: skipping jevos assets (re-run with --provider jevos to install them)"
 elif [ -x "$JEVDIR/jev" ] && [ -f "$JEVDIR/model/model.json" ] && [ -f "$JEVDIR/model/openvino_model.bin" ]; then
   log "jevos binary and model already installed, skipping"
@@ -203,8 +222,14 @@ STARTLUX_URL="$STARTLUX_URL"
 STARTLUX_MODEL="$STARTLUX_MODEL"
 STARTLUX27_URL="$STARTLUX27_URL"
 STARTLUX27_MODEL="$STARTLUX27_MODEL"
+JEV_API_URL="$JEV_API_URL"
+JEV_API_KEY="$JEV_API_KEY"
+JEV_API_MODEL="$JEV_API_MODEL"
+JEV_API_PATH="$JEV_API_PATH"
+JEV_API_HEALTH_PATH="$JEV_API_HEALTH_PATH"
 EOF
-chmod 644 "$DATA_DIR/deploy.env"
+# deploy.env may hold a bearer token: keep it out of other users' reach.
+if [ -n "$JEV_API_KEY" ]; then chmod 600 "$DATA_DIR/deploy.env"; else chmod 644 "$DATA_DIR/deploy.env"; fi
 # remember the data dir so start/stop/status work without env vars
 printf '%s\n' "$DATA_DIR" > "$REPO_DIR/.jevos-path"
 
@@ -220,6 +245,13 @@ if [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ]; then
   log "startlux:    $STARTLUX_URL model=$STARTLUX_MODEL"
   log "startlux27b: $STARTLUX27_URL model=$STARTLUX27_MODEL"
   log "start both with: bash deploy/startlux-both.sh start"
+fi
+if [ "$AI_PROVIDER" = "jevapi" ]; then
+  if [ -n "$JEV_API_URL" ] && [ -n "$JEV_API_KEY" ]; then
+    log "jevapi:     $JEV_API_URL model=$JEV_API_MODEL (key set)"
+  else
+    warn "jevapi:     not configured - set JEV_API_URL and JEV_API_KEY in $DATA_DIR/deploy.env"
+  fi
 fi
 
 if [ "$DO_START" = 1 ]; then

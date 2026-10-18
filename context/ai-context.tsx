@@ -27,13 +27,14 @@ export type EngineProvider =
   | "ollama"
   | "ollama27b"
   | "startlux"
-  | "startlux27b";
+  | "startlux27b"
+  | "jevapi";
 
 export type EngineInfo = {
   id: EngineProvider;
   label: string;
   model: string;
-  transport?: "cpu" | "gpu";
+  transport?: "cpu" | "gpu" | "cloud";
 };
 
 export type Outlook = {
@@ -71,7 +72,7 @@ export type EngineHealth = {
   label?: string;
   endpoint?: string;
   model?: string;
-  transport?: "cpu" | "gpu";
+  transport?: "cpu" | "gpu" | "cloud";
   latencyMs?: number;
   error?: string;
   hint?: string;
@@ -95,6 +96,7 @@ const ENGINE_PROVIDERS: EngineProvider[] = [
   "ollama27b",
   "startlux",
   "startlux27b",
+  "jevapi",
 ];
 
 function isEngineProvider(value: string | null): value is EngineProvider {

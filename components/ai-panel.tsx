@@ -11,7 +11,7 @@ const ENGINE_FALLBACK: {
   id: EngineProvider;
   label: string;
   model: string;
-  transport: "cpu" | "gpu";
+  transport: "cpu" | "gpu" | "cloud";
 }[] = [
   { id: "jevos", label: "jevos", model: "jev-latest", transport: "cpu" },
   { id: "ollama", label: "ollama", model: "clef-flash:9b", transport: "gpu" },
@@ -27,6 +27,12 @@ const ENGINE_FALLBACK: {
     label: "startlux-27b",
     model: "StartLux-Decision-v1.1-27B-Instant",
     transport: "gpu",
+  },
+  {
+    id: "jevapi",
+    label: "jev-api",
+    model: "jev-latest（.env 配置）",
+    transport: "cloud",
   },
 ];
 

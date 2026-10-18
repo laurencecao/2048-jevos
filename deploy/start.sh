@@ -21,6 +21,11 @@ STARTLUX_URL="${STARTLUX_URL:-http://127.0.0.1:8081}"
 STARTLUX_MODEL="${STARTLUX_MODEL:-StartLux-Decision-v1.1-9B-Instant}"
 STARTLUX27_URL="${STARTLUX27_URL:-http://127.0.0.1:8082}"
 STARTLUX27_MODEL="${STARTLUX27_MODEL:-StartLux-Decision-v1.1-27B-Instant}"
+JEV_API_URL="${JEV_API_URL:-}"
+JEV_API_KEY="${JEV_API_KEY:-}"
+JEV_API_MODEL="${JEV_API_MODEL:-jev-latest}"
+JEV_API_PATH="${JEV_API_PATH:-}"
+JEV_API_HEALTH_PATH="${JEV_API_HEALTH_PATH:-}"
 LOGS="$DATA_DIR/logs"; mkdir -p "$LOGS"
 
 log() { printf '\033[1;36m[start]\033[0m %s\n' "$*"; }
@@ -34,7 +39,7 @@ wait_healthy() { # url timeout_s
   return 1
 }
 
-if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "ollama27b" ] || [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ]; then
+if [ "$AI_PROVIDER" = "ollama" ] || [ "$AI_PROVIDER" = "ollama27b" ] || [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ] || [ "$AI_PROVIDER" = "jevapi" ]; then
   log "provider=$AI_PROVIDER: not starting jevos (set AI_PROVIDER=jevos to switch back)"
 elif healthy "http://127.0.0.1:$JEVOS_PORT/health"; then
   log "jevos already healthy on $JEVOS_PORT"
@@ -61,6 +66,9 @@ else
       OLLAMA27_URL="$OLLAMA27_URL" OLLAMA27_MODEL="$OLLAMA27_MODEL" \
       STARTLUX_URL="$STARTLUX_URL" STARTLUX_MODEL="$STARTLUX_MODEL" \
       STARTLUX27_URL="$STARTLUX27_URL" STARTLUX27_MODEL="$STARTLUX27_MODEL" \
+      JEV_API_URL="$JEV_API_URL" JEV_API_KEY="$JEV_API_KEY" \
+      JEV_API_MODEL="$JEV_API_MODEL" JEV_API_PATH="$JEV_API_PATH" \
+      JEV_API_HEALTH_PATH="$JEV_API_HEALTH_PATH" \
       JEVOS_URL="http://127.0.0.1:$JEVOS_PORT" \
       exec nohup node node_modules/next/dist/bin/next start -p "$WEB_PORT" \
       > "$LOGS/web.log" 2>&1 < /dev/null ) &
@@ -77,6 +85,12 @@ elif [ "$AI_PROVIDER" = "startlux" ] || [ "$AI_PROVIDER" = "startlux27b" ]; then
   startlux_ok="$(curl -fsS -m 3 "$STARTLUX_URL/health" >/dev/null 2>&1 && echo yes || echo no)"
   startlux27_ok="$(curl -fsS -m 3 "$STARTLUX27_URL/health" >/dev/null 2>&1 && echo yes || echo no)"
   log "ready: http://127.0.0.1:$WEB_PORT/  (engines: startlux 9B $STARTLUX_MODEL at $STARTLUX_URL reachable=$startlux_ok | startlux27b $STARTLUX27_MODEL at $STARTLUX27_URL reachable=$startlux27_ok)"
+elif [ "$AI_PROVIDER" = "jevapi" ]; then
+  if [ -n "$JEV_API_URL" ] && [ -n "$JEV_API_KEY" ]; then
+    log "ready: http://127.0.0.1:$WEB_PORT/  (engine=jevapi at $JEV_API_URL model=$JEV_API_MODEL, key set)"
+  else
+    log "ready: http://127.0.0.1:$WEB_PORT/  (engine=jevapi NOT configured: set JEV_API_URL and JEV_API_KEY in $DATA_DIR/deploy.env)"
+  fi
 else
   log "ready: http://127.0.0.1:$WEB_PORT/  (engine=jevos on :$JEVOS_PORT)"
 fi

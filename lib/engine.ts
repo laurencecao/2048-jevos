@@ -10,6 +10,10 @@
  * StartLux-Decision server (startlux-decide serve, GGUF on llama.cpp) serves
  * the same TypeSafe format. Switching engines therefore only changes the
  * endpoint and the model id - the prompts stay untouched.
+ *
+ * jevapi is the hosted Jev API. It speaks the same wire protocol, but its
+ * base URL and bearer token have no sensible default, so both are left empty
+ * on purpose: whoever runs the deployment supplies them in .env.
  */
 
 export type ProviderId =
@@ -17,7 +21,8 @@ export type ProviderId =
   | "ollama"
   | "ollama27b"
   | "startlux"
-  | "startlux27b";
+  | "startlux27b"
+  | "jevapi";
 
 export type EngineConfig = {
   id: ProviderId;
@@ -25,7 +30,7 @@ export type EngineConfig = {
   endpoint: string;
   model: string;
   /** Where the model runs, for the UI. */
-  transport: "cpu" | "gpu";
+  transport: "cpu" | "gpu" | "cloud";
   /** One-line fix shown when the engine is unreachable. */
   hint: string;
 };
@@ -36,7 +41,7 @@ export type EngineHealth = {
   label: string;
   endpoint: string;
   model?: string;
-  transport: "cpu" | "gpu";
+  transport: "cpu" | "gpu" | "cloud";
   latencyMs?: number;
   error?: string;
   hint?: string;
@@ -54,7 +59,12 @@ export const PROVIDERS: ProviderId[] = [
   "ollama27b",
   "startlux",
   "startlux27b",
+  "jevapi",
 ];
+
+/** Shown whenever the hosted API is missing its operator-supplied settings. */
+const JEV_API_HINT =
+  "Set JEV_API_URL and JEV_API_KEY in .env, then restart the app (see .env.example)";
 
 const DEFAULTS = {
   jevos: {
@@ -99,6 +109,17 @@ const DEFAULTS = {
     transport: "gpu" as const,
     hint: "Start both models: bash deploy/startlux-both.sh (27B decision API on 8082)",
   },
+  jevapi: {
+    // Hosted Jev API. No default URL and no default key: the operator of this
+    // deployment sets JEV_API_URL + JEV_API_KEY in .env. An empty endpoint
+    // keeps the engine visible in the picker while health reports why it is
+    // not usable yet.
+    url: "",
+    model: "jev-latest",
+    label: "jev-api",
+    transport: "cloud" as const,
+    hint: JEV_API_HINT,
+  },
 };
 
 const ENV_KEYS: Record<ProviderId, { url: string; model: string }> = {
@@ -107,7 +128,26 @@ const ENV_KEYS: Record<ProviderId, { url: string; model: string }> = {
   ollama27b: { url: "OLLAMA27_URL", model: "OLLAMA27_MODEL" },
   startlux: { url: "STARTLUX_URL", model: "STARTLUX_MODEL" },
   startlux27b: { url: "STARTLUX27_URL", model: "STARTLUX27_MODEL" },
+  jevapi: { url: "JEV_API_URL", model: "JEV_API_MODEL" },
 };
+
+/** Decision route. Hosted deployments occasionally mount it elsewhere. */
+function decisionPath(id: ProviderId): string {
+  if (id === "jevapi") return env("JEV_API_PATH") || "/v1/systemone";
+  return "/v1/systemone";
+}
+
+/** Bearer auth for the hosted API. The key is read per request and never
+ * stored on EngineConfig, so no API response can echo it back. */
+function authHeaders(id: ProviderId): Record<string, string> {
+  if (id !== "jevapi") return {};
+  const key = env("JEV_API_KEY");
+  return key ? { Authorization: "Bearer " + key } : {};
+}
+
+function jevApiConfigured(): boolean {
+  return Boolean(env("JEV_API_URL") && env("JEV_API_KEY"));
+}
 
 function env(name: string): string | undefined {
   const value = process.env[name];
@@ -120,7 +160,8 @@ export function isProviderId(value: unknown): value is ProviderId {
     value === "ollama" ||
     value === "ollama27b" ||
     value === "startlux" ||
-    value === "startlux27b"
+    value === "startlux27b" ||
+    value === "jevapi"
   );
 }
 
@@ -136,14 +177,18 @@ export function resolveEngine(provider?: unknown): EngineConfig {
     : defaultProviderId();
   const fallback = DEFAULTS[id];
   const keys = ENV_KEYS[id];
+  const endpoint = (env(keys.url) || fallback.url).replace(/\/+$/, "");
 
   return {
     id,
     label: fallback.label,
-    endpoint: (env(keys.url) || fallback.url).replace(/\/+$/, ""),
+    endpoint,
     model: env(keys.model) || fallback.model,
     transport: fallback.transport,
-    hint: fallback.hint,
+    hint:
+      id === "jevapi" && (!endpoint || !env("JEV_API_KEY"))
+        ? JEV_API_HINT
+        : fallback.hint,
   };
 }
 
@@ -193,6 +238,74 @@ export async function engineHealth(provider?: unknown): Promise<EngineHealth> {
         latencyMs,
         model:
           json && typeof json.model === "string" ? json.model : engine.model,
+      };
+    }
+
+    if (engine.id === "jevapi") {
+      if (!engine.endpoint) {
+        return failure(
+          engine,
+          started,
+          "JEV_API_URL is not configured",
+          JEV_API_HINT,
+        );
+      }
+      if (!jevApiConfigured()) {
+        return failure(
+          engine,
+          started,
+          "JEV_API_KEY is not configured",
+          JEV_API_HINT,
+        );
+      }
+
+      // Hosted APIs rarely expose /health. Probe it when present, but treat
+      // 404/405 as "the host answered, there is just no health route".
+      const response = await fetch(
+        engine.endpoint + (env("JEV_API_HEALTH_PATH") || "/health"),
+        {
+          cache: "no-store",
+          headers: authHeaders("jevapi"),
+          signal: AbortSignal.timeout(8000),
+        },
+      );
+      const latencyMs = Date.now() - started;
+
+      if (response.status === 401 || response.status === 403) {
+        return failure(
+          engine,
+          started,
+          "JEV_API_KEY was rejected (HTTP " + response.status + ")",
+          "Check JEV_API_KEY in .env",
+        );
+      }
+      if (response.status === 404 || response.status === 405) {
+        return {
+          ok: true,
+          provider: engine.id,
+          label: engine.label,
+          endpoint: engine.endpoint,
+          transport: engine.transport,
+          latencyMs,
+          model: engine.model,
+        };
+      }
+      if (!response.ok) {
+        return failure(engine, started, "HTTP " + response.status);
+      }
+
+      const json = (await response.json().catch(() => null)) as {
+        model?: string;
+        status?: string;
+      } | null;
+      return {
+        ok: true,
+        provider: engine.id,
+        label: engine.label,
+        endpoint: engine.endpoint,
+        transport: engine.transport,
+        latencyMs,
+        model: json?.model || engine.model,
       };
     }
 
@@ -293,6 +406,19 @@ export async function askEngine(
   const engine = resolveEngine(provider);
   const started = Date.now();
 
+  if (engine.id === "jevapi") {
+    if (!engine.endpoint) {
+      throw new Error(
+        "JEV_API_URL is not configured (set it in .env and restart the app)",
+      );
+    }
+    if (!env("JEV_API_KEY")) {
+      throw new Error(
+        "JEV_API_KEY is not configured (set it in .env and restart the app)",
+      );
+    }
+  }
+
   const body: Record<string, unknown> = {
     model: engine.model,
     state,
@@ -318,15 +444,20 @@ export async function askEngine(
       ? 180000
       : engine.id === "ollama27b"
         ? 300000
-        : engine.id === "startlux" || engine.id === "startlux27b"
+        : engine.id === "startlux" ||
+            engine.id === "startlux27b" ||
+            engine.id === "jevapi"
           ? 120000
           : 30000;
 
   let response: Response;
   try {
-    response = await fetch(engine.endpoint + "/v1/systemone", {
+    response = await fetch(engine.endpoint + decisionPath(engine.id), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(engine.id),
+      },
       body: JSON.stringify(body),
       cache: "no-store",
       signal: AbortSignal.timeout(timeoutMs),

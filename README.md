@@ -58,6 +58,7 @@ npm run dev:all                 # 起 jevos（.jevos/jev 或 JEVOS_DIR）+ next 
 | `ollama27b`     | GPU · 多卡分摊      | `http://127.0.0.1:11434` | `clef:27b`（27B Q4_K_M）                       | 想在同一个 ollama 里再放一个更大的脑子 |
 | `startlux`      | GPU · llama.cpp     | `http://127.0.0.1:8081`  | `StartLux-Decision-v1.1-9B-Instant`（Q8_0）    | 有 GGUF + 想换一个决策模型             |
 | `startlux27b`   | GPU · llama.cpp     | `http://127.0.0.1:8082`  | `StartLux-Decision-v1.1-27B-Instant`（Q4_K_M） | 同机想同时留一个更大的脑子             |
+| `jevapi`        | 云端 · HTTPS        | **无默认**（`.env` 配）  | **无默认**（`.env` 配，示例 `jev-latest`）     | 不想在本机跑模型 / 有 Jev API 额度     |
 
 ollama ≥ 0.40 为 decision 模型（如 `clef-flash:9b`）提供 **`/v1/systemone`**，StartLux-Decision 的
 `startlux-decide serve` 也提供同一协议；请求与响应和 jevos 逐字段一致：
@@ -199,7 +200,7 @@ bash deploy/switch-provider.sh startlux27b   # 把默认引擎切成 27B
 **显存**：9B Q8_0 = 9.5 GB，27B Q4_K_M = 16.5 GB，合计 26 GB 权重，4×A2 共 61 GB。
 关键是**别把 `-b/-ub` 开大**：`-ub 16384` 会为 logits 预留 `batch × vocab × 4 B` 的缓冲
 （几 GB/卡），单模型就能吃掉 ~48 GB。`deploy/startlux-llama.sh` 现在默认
-`-c 4096 -b 2048 -ub 512`（决策 prompt 只有 ~700 token），两个模型可同时常驻。
+`-c 4096 -b 2048 -ub 2048`（决策 prompt 只有 ~700 token），两个模型可同时常驻。
 
 4×A2 实测：9B 一次 hinted 决策（4 候选）约 0.8–1.2 s；27B 约 3.8 s。冷启动 27B 需要把
 16.5 GB 读进显存（约 1–2 min），期间 llama-server `/health` 返回 `503 Loading model`。
@@ -213,16 +214,41 @@ bash deploy/switch-provider.sh startlux27b   # 把默认引擎切成 27B
 - 健康：`curl -s http://127.0.0.1:8081/health`（9B）· `http://127.0.0.1:8082/health`（27B）
   → `{"status":"ok","model":"...","kind":"instant"}`。
 
+### 云端 Jev API（`jevapi`，由使用者在 `.env` 里配置）
+
+这一档**不提供任何默认地址与默认密钥**，避免把一个不属于本部署的端点写死在仓库里。
+使用者自己填三项：
+
+```bash
+# .env.local（开发）或 <data-dir>/deploy.env（部署）—— 二选一
+JEV_API_URL=https://api.example.com      # 必填，不带 /v1/systemone
+JEV_API_KEY=...                          # 必填，按 Bearer 发送
+JEV_API_MODEL=jev-latest                 # 可选，缺省 jev-latest
+# 只有对方路由不同才需要：
+# JEV_API_PATH=/v1/systemone
+# JEV_API_HEALTH_PATH=/health
+```
+
+改完重启 Web（部署环境用 `bash deploy/start.sh`）。密钥**只从 `.env` 读，不写进代码、
+不返回给浏览器**；健康检查与 `/v1/systemone` 请求都在服务端加 `Authorization: Bearer`。
+
+- 未配置时：页面下拉里仍能看到 `jev-api`，选中后面板显示「未就绪」并给出
+  `Set JEV_API_URL and JEV_API_KEY in .env`，不会静默失败。
+- 已配置时：健康检查先探 `{JEV_API_URL}/health`；如果对方没有这个路由（404/405），
+  视为「主机可达、只是没有健康页」，照常可玩；401/403 则明确报密钥被拒。
+- 端点必须支持与本地 jev 相同的决策协议：`POST {JEV_API_URL}/v1/systemone`。
+- 部署环境的 `deploy.env` 里写了密钥时，`deploy/install.sh` 会把该文件权限收紧到 `600`。
+
 ## 界面
 
-| 控件                        | 作用                                                                                  |
-| --------------------------- | ------------------------------------------------------------------------------------- |
-| **▶ 让 AI 开始 / ⏸ 暂停** | 开始或暂停自动走；暂停后方向键可手动玩                                                |
-| **⏭ 单步**                 | 只让当前引擎走一步，然后自动暂停                                                      |
-| **引擎**                    | jevos / ollama（9B）/ ollama-27b / startlux（9B）/ startlux-27b，切换只影响当前浏览器 |
-| **↻ 重开**                  | 重置棋盘；如果正在自动走，会接着新局继续                                              |
-| **决策模式**                | 见下表                                                                                |
-| **间隔**                    | 两步之间的额外等待（0–1200 ms），不含模型推理时间                                     |
+| 控件                        | 作用                                                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **▶ 让 AI 开始 / ⏸ 暂停** | 开始或暂停自动走；暂停后方向键可手动玩                                                                  |
+| **⏭ 单步**                 | 只让当前引擎走一步，然后自动暂停                                                                        |
+| **引擎**                    | jevos / ollama（9B）/ ollama-27b / startlux（9B）/ startlux-27b / jev-api（云端），切换只影响当前浏览器 |
+| **↻ 重开**                  | 重置棋盘；如果正在自动走，会接着新局继续                                                                |
+| **决策模式**                | 见下表                                                                                                  |
+| **间隔**                    | 两步之间的额外等待（0–1200 ms），不含模型推理时间                                                       |
 
 棋盘上方的小圆点：绿色=空闲，橙色脉冲=jevos 正在推理，灰色=暂停。
 
@@ -249,8 +275,9 @@ Next.js API 路由（同源，无 CORS）
   ├──> jevos  http://127.0.0.1:8017/v1/systemone   （CPU · OpenVINO int8）
   ├──> ollama   http://127.0.0.1:11434/v1/systemone （GPU · clef-flash:9b）
   ├──> ollama27b http://127.0.0.1:11434/v1/systemone （GPU · clef:27b，多卡分摊）
-  └──> startlux      http://127.0.0.1:8081/v1/systemone （GPU · llama.cpp + 9B GGUF）
-  └──> startlux27b   http://127.0.0.1:8082/v1/systemone （GPU · llama.cpp + 27B GGUF）
+  ├──> startlux      http://127.0.0.1:8081/v1/systemone （GPU · llama.cpp + 9B GGUF）
+  ├──> startlux27b   http://127.0.0.1:8082/v1/systemone （GPU · llama.cpp + 27B GGUF）
+  └──> jevapi        ${JEV_API_URL}/v1/systemone （云端 · Bearer，地址/密钥由 .env 提供）
   │  choice + 每个候选概率 + score 形势判断
   ▼
 浏览器用游戏自己的 reducer 落子，等动画结束，再走下一步
@@ -258,16 +285,16 @@ Next.js API 路由（同源，无 CORS）
 
 关键文件：
 
-| 文件                        | 职责                                                                                                                                           |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lib/game.ts`               | 4×4 引擎：`[x,y]`→`board[y][x]`、四个方向模拟、合法走法、1-ply 启发式、提示词里的局面描述                                                      |
-| `lib/prompt.ts`             | 三种模式的 prompt：state + 每个候选一行说明 + choice/score 问题                                                                                |
-| `lib/engine.ts`             | 引擎注册与解析（jevos / ollama / ollama27b / startlux / startlux27b）、健康检查、`/v1/systemone` 客户端；ollama 冷启动 180 s，27B 放宽到 300 s |
-| `pages/api/jevos/move.ts`   | 校验棋盘、枚举合法走法、调模型、把 choice 概率和 outlook 原样返回；只有一个合法走法时不调用模型                                                |
-| `pages/api/jevos/health.ts` | 面板左上角那个绿点就是它                                                                                                                       |
-| `context/ai-context.tsx`    | 自动循环、暂停/单步/重开、动画等待、no-op 防护（同一局面某方向不生效就排除它重试）                                                             |
-| `components/ai-panel.tsx`   | 面板 UI                                                                                                                                        |
-| `components/board.tsx`      | 原游戏棋盘；AI 运行时屏蔽方向键                                                                                                                |
+| 文件                        | 职责                                                                                                                                                                                     |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/game.ts`               | 4×4 引擎：`[x,y]`→`board[y][x]`、四个方向模拟、合法走法、1-ply 启发式、提示词里的局面描述                                                                                                |
+| `lib/prompt.ts`             | 三种模式的 prompt：state + 每个候选一行说明 + choice/score 问题                                                                                                                          |
+| `lib/engine.ts`             | 引擎注册与解析（jevos / ollama / ollama27b / startlux / startlux27b / jevapi）、健康检查、`/v1/systemone` 客户端；ollama 冷启动 180 s，27B 放宽到 300 s；jevapi 只从 `.env` 取地址与密钥 |
+| `pages/api/jevos/move.ts`   | 校验棋盘、枚举合法走法、调模型、把 choice 概率和 outlook 原样返回；只有一个合法走法时不调用模型                                                                                          |
+| `pages/api/jevos/health.ts` | 面板左上角那个绿点就是它                                                                                                                                                                 |
+| `context/ai-context.tsx`    | 自动循环、暂停/单步/重开、动画等待、no-op 防护（同一局面某方向不生效就排除它重试）                                                                                                       |
+| `components/ai-panel.tsx`   | 面板 UI                                                                                                                                                                                  |
+| `components/board.tsx`      | 原游戏棋盘；AI 运行时屏蔽方向键                                                                                                                                                          |
 
 一次请求的 prompt 长这样（面板里可展开看全文）：
 
@@ -337,7 +364,7 @@ curl -s -X POST http://localhost:3000/api/jevos/move \
 ## 验证
 
 ```bash
-npx jest --runInBand --watchAll=false   # 52 passed（含 9 条引擎解析用例）
+npx jest --runInBand --watchAll=false   # 61 passed（含 20 条引擎解析 / 云端 API 用例）
 npm run build                           # Next 生产构建通过
 npm run lint                            # No ESLint warnings or errors
 ```
@@ -347,6 +374,11 @@ npm run lint                            # No ESLint warnings or errors
 | 变量                      | 默认                     | 说明                                                                    |
 | ------------------------- | ------------------------ | ----------------------------------------------------------------------- |
 | `AI_PROVIDER`             | `jevos`                  | 默认引擎：`jevos` / `ollama` / `ollama27b` / `startlux` / `startlux27b` |
+| `JEV_API_URL`             | **空（必填）**           | 云端 jev API 基地址；不填则 `jevapi` 显示「未配置」                     |
+| `JEV_API_KEY`             | **空（必填）**           | 云端 jev API 密钥，按 `Authorization: Bearer` 发送                      |
+| `JEV_API_MODEL`           | `jev-latest`             | 云端请求里的 model 名                                                   |
+| `JEV_API_PATH`            | `/v1/systemone`          | 决策路由（仅当对方挂载点不同）                                          |
+| `JEV_API_HEALTH_PATH`     | `/health`                | 健康检查路由（仅当对方挂载点不同）                                      |
 | `JEVOS_URL`               | `http://127.0.0.1:8017`  | jevos 地址                                                              |
 | `JEVOS_MODEL`             | `jev-latest`             | 请求里的 model 名                                                       |
 | `OLLAMA_URL`              | `http://127.0.0.1:11434` | ollama 地址                                                             |

@@ -17,7 +17,8 @@
 浏览器 ──HTTP──> Next.js :3000 ──HTTP──> jevos     :8017（本机 CPU）
                     │                ├──> ollama    :11434（GPU · clef-flash:9b）
                     │                ├──> ollama27b :11434（GPU · clef:27b，多卡分摊）
-                    │                └──> startlux  :8081 / :8082（GPU · GGUF）
+                    │                ├──> startlux  :8081 / :8082（GPU · GGUF）
+                    │                └──> jevapi    $JEV_API_URL（云端 · Bearer，见 §2.3）
                     └─ /api/jevos/move：把局面编译成 choice/score 问题
 ```
 
@@ -26,7 +27,9 @@
 - **jevos**（默认）：C++ / OpenVINO int8，单二进制 + 679 MB 模型，纯 CPU；
 - **ollama**：decision 模型 `clef-flash:9b`（10.6 GB Q8_0），有 GPU 时自动上 GPU；
 - **ollama27b**：同一个 ollama 守护进程上的 `clef:27b`（27B Q4_K_M，~18 GB），需要跨卡分摊（见 §2.1.1）；
-- **2048**：Next.js 14，生产模式 `next start`，两个引擎共用。
+- **startlux / startlux27b**：两段式（llama-server + decision API），9B 与 27B 可同时常驻（见 §2.2）；
+- **jevapi**：云端 Jev API，**没有默认地址与默认密钥**，由使用者在 `.env` / `deploy.env` 里填（见 §2.3）；
+- **2048**：Next.js 14，生产模式 `next start`，所有引擎共用。
 
 ---
 
@@ -62,24 +65,24 @@ bash deploy/install.sh
 5. 写 `<data>/deploy.env`（端口、线程数、仓库路径）；
 6. 调 `deploy/start.sh`：起 jevos（等健康）→ 起 Web（等 200）。
 
-| 选项                      | 默认                                 | 说明                                                                                                                     |
-| ------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| `--data-dir DIR`          | `<repo>/.jevos`                      | jevos 运行时目录（二进制、模型、日志、pid）                                                                              |
-| `--port P`                | `3000`                               | Web 端口                                                                                                                 |
-| `--jevos-port P`          | `8017`                               | jevos 端口                                                                                                               |
-| `--threads N`             | `4`                                  | jevos CPU 线程数                                                                                                         |
-| `--provider NAME`         | `jevos`                              | 默认引擎：`jevos` / `ollama`（9B）/ `ollama27b`（27B）/ `startlux`（9B）/ `startlux27b`（27B）；非 jevos 跳过 jevos 资产 |
-| `--ollama-url URL`        | `http://127.0.0.1:11434`             | ollama 地址（9B）                                                                                                        |
-| `--ollama-model ID`       | `clef-flash:9b`                      | ollama 9B decision 模型                                                                                                  |
-| `--ollama27-url URL`      | `http://127.0.0.1:11434`             | ollama 地址（27B，默认与 9B 同一个守护进程）                                                                             |
-| `--ollama27-model ID`     | `clef:27b`                           | ollama 27B decision 模型                                                                                                 |
-| `--startlux-url URL`      | `http://127.0.0.1:8081`              | 9B startlux-decide 地址                                                                                                  |
-| `--startlux-model NAME`   | `StartLux-Decision-v1.1-9B-Instant`  | 9B 健康检查里报告的名字                                                                                                  |
-| `--startlux27-url URL`    | `http://127.0.0.1:8082`              | 27B startlux-decide 地址                                                                                                 |
-| `--startlux27-model NAME` | `StartLux-Decision-v1.1-27B-Instant` | 27B 健康检查里报告的名字                                                                                                 |
-| `--assets-dir DIR`        | —                                    | 用已下载好的发布包，完全离线安装                                                                                         |
-| `--no-start`              | —                                    | 只安装，不启动                                                                                                           |
-| `--skip-npm`              | —                                    | 跳过 `npm ci`/`build`（依赖已就位）                                                                                      |
+| 选项                      | 默认                                 | 说明                                                                                                                                       |
+| ------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--data-dir DIR`          | `<repo>/.jevos`                      | jevos 运行时目录（二进制、模型、日志、pid）                                                                                                |
+| `--port P`                | `3000`                               | Web 端口                                                                                                                                   |
+| `--jevos-port P`          | `8017`                               | jevos 端口                                                                                                                                 |
+| `--threads N`             | `4`                                  | jevos CPU 线程数                                                                                                                           |
+| `--provider NAME`         | `jevos`                              | 默认引擎：`jevos` / `ollama`（9B）/ `ollama27b`（27B）/ `startlux`（9B）/ `startlux27b`（27B）/ `jevapi`（云端）；非 jevos 跳过 jevos 资产 |
+| `--ollama-url URL`        | `http://127.0.0.1:11434`             | ollama 地址（9B）                                                                                                                          |
+| `--ollama-model ID`       | `clef-flash:9b`                      | ollama 9B decision 模型                                                                                                                    |
+| `--ollama27-url URL`      | `http://127.0.0.1:11434`             | ollama 地址（27B，默认与 9B 同一个守护进程）                                                                                               |
+| `--ollama27-model ID`     | `clef:27b`                           | ollama 27B decision 模型                                                                                                                   |
+| `--startlux-url URL`      | `http://127.0.0.1:8081`              | 9B startlux-decide 地址                                                                                                                    |
+| `--startlux-model NAME`   | `StartLux-Decision-v1.1-9B-Instant`  | 9B 健康检查里报告的名字                                                                                                                    |
+| `--startlux27-url URL`    | `http://127.0.0.1:8082`              | 27B startlux-decide 地址                                                                                                                   |
+| `--startlux27-model NAME` | `StartLux-Decision-v1.1-27B-Instant` | 27B 健康检查里报告的名字                                                                                                                   |
+| `--assets-dir DIR`        | —                                    | 用已下载好的发布包，完全离线安装                                                                                                           |
+| `--no-start`              | —                                    | 只安装，不启动                                                                                                                             |
+| `--skip-npm`              | —                                    | 跳过 `npm ci`/`build`（依赖已就位）                                                                                                        |
 
 **游戏与 jevos 放在同一个父目录**（本机实际采用的布局）：
 
@@ -321,6 +324,52 @@ curl -s 'http://127.0.0.1:3000/api/jevos/health?provider=startlux'
 
 ---
 
+## 2.3 · 云端 Jev API 后端（`jevapi`，由使用者配置）
+
+这一档不在本机跑模型，走对方的 HTTPS 端点。**仓库里不写任何默认地址、不写任何密钥**——
+使用者在 `.env.local`（开发）或 `<data-dir>/deploy.env`（部署）里自己填：
+
+```bash
+AI_PROVIDER="jevapi"                    # 可选：把默认引擎切过去
+JEV_API_URL="https://api.example.com"   # 必填，基地址，不带 /v1/systemone
+JEV_API_KEY="..."                       # 必填，按 Authorization: Bearer 发送
+JEV_API_MODEL="jev-latest"              # 可选
+# 仅当对方路由不同：
+# JEV_API_PATH="/v1/systemone"
+# JEV_API_HEALTH_PATH="/health"
+```
+
+改完重启 Web（`bash deploy/start.sh`，或 `bash deploy/switch-provider.sh jevapi`）。
+`switch-provider.sh` 只改 `AI_PROVIDER`，**不会碰 `JEV_API_*` 那几行**。
+
+**判据**
+
+```bash
+# 未配置：503 + 明确原因（不会静默失败）
+curl -s 'http://127.0.0.1:3000/api/jevos/health?provider=jevapi'
+# {"ok":false,"error":"JEV_API_URL is not configured","hint":"Set JEV_API_URL and JEV_API_KEY in .env, ..."}
+
+# 已配置且可达
+curl -s 'http://127.0.0.1:3000/api/jevos/health?provider=jevapi'
+# {"ok":true,"provider":"jevapi","transport":"cloud",...}
+
+curl -s -X POST http://127.0.0.1:3000/api/jevos/move \
+  -H 'Content-Type: application/json' \
+  -d '{"provider":"jevapi","board":[[2,2,0,0],[4,0,0,0],[0,0,0,0],[0,0,0,0]],"score":12,"moves":3,"mode":"assisted"}'
+```
+
+**必须知道的四点**
+
+1. **端点必须支持同一套决策协议**：`POST {JEV_API_URL}/v1/systemone`，请求/响应与 jevos 逐字段一致。
+2. **密钥只在服务端**：`lib/engine.ts` 每次请求现读 `JEV_API_KEY`，不放在 `EngineConfig` 上，
+   因此任何 API 响应（`/health` 的 `engines[]`、`/move` 的 `engine`）都不会带回密钥。
+3. **健康检查对 404/405 宽容**：对方没有 `/health` 时视为「主机可达、只是没有健康页」；
+   `401/403` 则明确报「密钥被拒」，不会把坏密钥当成可用。
+4. **权限**：`deploy/install.sh` 生成 `deploy.env` 时，如果检测到 `JEV_API_KEY` 非空，
+   会把文件权限设为 `600`。
+
+---
+
 ## 3 · Agent 自主安装清单
 
 每一步都给出**通过判据**；任何一步不通过就停在原地，不要继续往下装。
@@ -384,7 +433,7 @@ bash deploy/install.sh --assets-dir /path/to/assets
 │   └── switch-provider.sh  # 改 deploy.env 的 AI_PROVIDER 并重启
 ├── docs/DEPLOY.md      # 本文
 ├── pages/api/jevos/    # 同源代理：/move、/health（支持 ?provider=）
-├── lib/                # engine.ts（jevos/ollama/ollama27b/startlux*/startlux27b 解析与客户端）、prompt、游戏引擎
+├── lib/                # engine.ts（jevos/ollama/ollama27b/startlux*/startlux27b/jevapi 解析与客户端）、prompt、游戏引擎
 └── .jevos/             # 默认 data dir（已 gitignore）
     ├── jev/
     │   ├── jev         # 可执行文件
